@@ -24,11 +24,13 @@ export default function LoginPage() {
     });
 
     if (result?.error) {
+      alert('아이디 또는 비밀번호가 틀렸습니다.');
       setError('이메일 또는 비밀번호가 일치하지 않습니다.');
     } else {
       // 로그인 성공 시 유저플로우 상 다음 단계인 대시보드(URL 입력 화면)로 이동
       router.push('/dashboard');
     }
+
   };
 
   return (
@@ -40,15 +42,10 @@ export default function LoginPage() {
         </div>
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {error && (
-            <div className="bg-red-50 text-red-500 p-3 rounded-lg text-sm text-center font-medium">
-              {error}
-            </div>
-          )}
-          
           <div className="space-y-4">
+
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">아이디 (이메일)</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">이메일</label>
               <input
                 type="email"
                 required
@@ -86,7 +83,7 @@ export default function LoginPage() {
           </button>
 
           <div className="text-center text-sm text-gray-500">
-            계정이 없으신가요? 
+            계정이 없으신가요?
             <Link href="/register">
               <span className="ml-2 text-blue-600 font-bold hover:underline cursor-pointer">회원가입</span>
             </Link>
