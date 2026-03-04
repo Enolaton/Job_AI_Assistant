@@ -1,0 +1,37 @@
+[JobAI Assist MongoDB 운영 및 상세 설치 가이드]
+
+1. 필수 도구 설치: MongoDB Compass
+   - 서비스의 실시간 데이터를 확인하고 관리하기 위한 GUI 도구입니다.
+   - 다운로드: https://www.mongodb.com/try/download/compass (커뮤니티 버전 선택)
+
+2. 환경 변수 설정 (.env.local)
+   - 프로젝트 최상위 경로(package.json이 있는 곳)에 .env.local 파일을 생성합니다.
+   - 아래의 형식으로 MONGODB_URI를 작성해야 앱이 데이터베이스를 인식합니다.
+   
+   MONGODB_URI=mongodb+srv://<유저네임>:<비밀번호>@cluster0.abcde.mongodb.net/?retryWrites=true&w=majority&appName=job_ai_database
+
+   [MONGODB_URI 구조 상세 설명]
+   - mongodb+srv:// : 몽고DB 클라우드 접속을 위한 표준 프로토콜입니다.
+   - <유저네임> : 데이터베이스 접속용 ID (보통 팀 내에서 공유받은 이름)
+   - <비밀번호> : 해당 유저의 비밀번호 (특수문자가 포함된 경우 인코딩이 필요할 수 있습니다.)
+   - @cluster0... : 접속할 서버의 주소(엔드포인트)입니다.
+   - /job_ai_database : 실제 데이터를 저장할 데이터베이스 이름입니다.
+
+3. 상세 사용 방법 (실패 없는 연결 단계)
+   ① 설치한 MongoDB Compass를 실행합니다.
+   ② 메인 화면의 'New Connection' 섹에 있는 입력칸에 자신의 전체 MONGODB_URI를 붙여넣습니다.
+   ③ [Connect] 버튼을 클릭하여 서버에 접속합니다.
+   ④ 접속 성공 시 좌측 리스트에서 'job_ai_database'를 클릭합니다.
+   ⑤ 'users' 컬렉션을 선택하면 현재 가입된 사용자 목록과 각 필드(email, password 등)를 직접 확인할 수 있습니다.
+
+4. 프로젝트 소스 코드 연동 원리 (lib/mongodb.ts)
+   - 팀원들이 코드를 수정할 때마다 서버가 자동으로 재시작(Hot Reload)되는데, 이때마다 DB 연결이 새로 생기면 성능이 저하됩니다.
+   - 우리 프로젝트는 이를 방지하기 위해 'global' 객체에 연결 상태를 저장해두고, 전체 앱에서 단 하나의 연결 통로만 공유하도록 설계 문화를 적용했습니다.
+
+5. 트러블슈팅 (연결이 안 되는 경우)
+   - ID/PW 중괄호(< >)는 포함하지 말고 텍스트만 입력했는지 확인하세요.
+   - 오타가 없는지, 그리고 .env.local 파일 이름이 정확한지 확인하세요.
+
+--------------------------------------------------
+작성일: 2026-03-04
+작성자: Antigravity AI
