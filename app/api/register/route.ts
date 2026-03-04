@@ -1,18 +1,37 @@
-// app/api/register/route.ts
 import { NextResponse } from 'next/server';
+import clientPromise from "../../../lib/mongodb";
+import bcrypt from "bcryptjs";
 
 export async function POST(request: Request) {
   try {
     const { email, password, name } = await request.json();
 
-    // 1. 여기서 기획서에 명시된 DB(예: MongoDB)에 사용자 저장 로직이 들어갑니다.
-    // 예: const newUser = await db.user.create({ data: { email, password, name } });
-    
-    console.log("회원가입 시도:", { email, name });
+    // 1. MongoDB 연결
+    const client = await clientPromise;
+    const db = client.db("job_ai_database");
 
-    // 2. 성공 응답 반환
-    return NextResponse.json({ message: "회원가입 성공" }, { status: 201 });
+    // 2. 이메일 중복 확인
+    const existingUser = await db.collection("users").findOne({ email });
+    if (existingUser) {
+      return NextResponse.json({ message: "이미 가입된 이메일입니다." }, { status: 400 });
+    }
+
+    // 3. 비밀번호 암호화
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // 4. 사용자 데이터 저장
+    const result = await db.collection("users").insertOne({
+      email,
+      password: hashedPassword,
+      name,
+      createdAt: new Date(),
+    });
+
+    console.log("회원가입 완료:", result.insertedId);
+
+    return NextResponse.json({ message: "회원가입에 성공했습니다!" }, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ message: "회원가입 중 오류 발생" }, { status: 500 });
+    console.error("회원가입 에러:", error);
+    return NextResponse.json({ message: "회원가입 중 서버 오류가 발생했습니다." }, { status: 500 });
   }
 }
