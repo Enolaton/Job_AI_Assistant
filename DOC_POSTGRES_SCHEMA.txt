@@ -1,0 +1,69 @@
+# JobAI Assist Database Schema Design (PostgreSQL)
+
+이 문서는 JobAI Assist 서비스의 핵심 기능을 지원하기 위한 PostgreSQL 관계형 데이터베이스(RDBMS) 설계안입니다.
+
+## 1. 개요
+기존 MongoDB의 유연한 구조에서 엄격한 관계형 구조로 전환하여 데이터 무결성을 확보하고 복잡한 분석 쿼리를 효율적으로 수행합니다.
+
+## 2. 테이블 설계 (ERD)
+
+### 2.1 Users (사용자)
+가입 회원 정보를 관리합니다.
+- `id`: UUID (Primary Key)
+- `email`: VARCHAR(255) (Unique, Indexed) - 가입 이메일
+- `password`: VARCHAR(255) - 암호화된 비밀번호
+- `name`: VARCHAR(100) - 사용자 이름
+- `role`: VARCHAR(20) (Default: 'USER') - 'USER', 'ADMIN' (관리자 계정 구분)
+- `created_at`: TIMESTAMP (Default: NOW())
+- `updated_at`: TIMESTAMP
+
+### 2.2 Experiences (경험 뱅크)
+사용자의 과거 프로젝트 및 성과 기록을 STARI 프레임워크 기반으로 저장합니다.
+- `id`: SERIAL (Primary Key)
+- `user_id`: UUID (Foreign Key -> Users.id)
+- `title`: VARCHAR(255) - 경험 제목
+- `situation`: TEXT - 상황
+- `task`: TEXT - 과제
+- `action`: TEXT - 행동
+- `result`: TEXT - 결과
+- `insight`: TEXT - 인사이트/배운 점
+- `started_at`: DATE - 활동 시작일
+- `ended_at`: DATE - 활동 종료일
+- `tags`: JSONB - 역량 태그 리스트 (예: ["리더십", "데이터분석"])
+
+### 2.3 JobAnalyses (직무/기업 분석)
+채용 공고(JD) 분석 데이터를 저장합니다.
+- `id`: SERIAL (Primary Key)
+- `user_id`: UUID (Foreign Key -> Users.id)
+- `company_name`: VARCHAR(255) - 기업명
+- `job_title`: VARCHAR(255) - 직무명
+- `jd_url`: TEXT - 공고 URL
+- `jd_raw_text`: TEXT - 원문 텍스트
+- `analysis_result`: JSONB - AI 분석 결과 (핵심역량, 트렌드 등)
+- `created_at`: TIMESTAMP
+
+### 2.4 SelfIntroductions (자기소개서)
+사용자가 작성 중인 자기소개서 데이터를 관리합니다.
+- `id`: SERIAL (Primary Key)
+- `user_id`: UUID (Foreign Key -> Users.id)
+- `analysis_id`: INTEGER (Foreign Key -> JobAnalyses.id) - 어떤 JD를 기반으로 썼는지 연결
+- `title`: VARCHAR(255) - 자소서 전체 제목
+- `created_at`: TIMESTAMP
+
+### 2.5 SelfIntroItems (자소서 문항 및 내용)
+자소서 내부의 개별 문항들을 관리합니다.
+- `id`: SERIAL (Primary Key)
+- `self_intro_id`: INTEGER (Foreign Key -> SelfIntroductions.id)
+- `question`: TEXT - 문항 질문 내용
+- `answer`: TEXT - 사용자가 작성한 답변
+- `ai_guide`: TEXT - AI가 생성한 작성 가이드/첨삭
+- `order_index`: INTEGER - 문항 순서
+
+## 3. 특징 및 장점
+1. **데이터 무결성**: 사용자가 탈퇴할 경우(`user_id`), 해당 사용자의 경험과 자소서 데이터를 연쇄 삭제(ON DELETE CASCADE)하거나 관리하기 용이합니다.
+2. **JSONB 활용**: 역량 태그나 AI 분석 결과와 같이 구조가 고정되지 않은 데이터는 PostgreSQL의 `JSONB` 타입을 사용하여 유연성과 성능을 동시에 잡았습니다.
+3. **확장성**: 추후 'AI 모의 면접' 기능이 추가될 때 `interviews` 테이블을 만들어 `user_id`와 연결하기만 하면 됩니다.
+
+## 4. 향후 과제
+- Prisma 또는 TypeORM과 같은 ORM 도구 선정 (Next.js와의 호환성 고려)
+- Prisma 설정 파일(`schema.prisma`) 생성 및 마이그레이션 수행

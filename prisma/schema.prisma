@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String             @id @default(uuid())
+  email             String             @unique
+  password          String
+  name              String
+  role              String             @default("USER")
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  experiences       Experience[]
+  jobAnalyses       JobAnalysis[]
+  selfIntroductions SelfIntroduction[]
+
+  @@map("users")
+}
+
+model Experience {
+  id        Int       @id @default(autoincrement())
+  userId    String    @map("user_id")
+  title     String
+  situation String?
+  task      String?
+  action    String?
+  result    String?
+  insight   String?
+  startedAt DateTime? @map("started_at")
+  endedAt   DateTime? @map("ended_at")
+  tags      Json?     @default("[]")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("experiences")
+}
+
+model JobAnalysis {
+  id                Int                @id @default(autoincrement())
+  userId            String             @map("user_id")
+  companyName       String             @map("company_name")
+  jobTitle          String             @map("job_title")
+  jdUrl             String?            @map("jd_url")
+  jdRawText         String?            @map("jd_raw_text")
+  analysisResult    Json?              @map("analysis_result")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  selfIntroductions SelfIntroduction[]
+
+  @@map("job_analyses")
+}
+
+model SelfIntroduction {
+  id          Int             @id @default(autoincrement())
+  userId      String          @map("user_id")
+  analysisId  Int?            @map("analysis_id")
+  title       String
+  createdAt   DateTime        @default(now()) @map("created_at")
+  items       SelfIntroItem[]
+  jobAnalysis JobAnalysis?    @relation(fields: [analysisId], references: [id])
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("self_introductions")
+}
+
+model SelfIntroItem {
+  id                 Int              @id @default(autoincrement())
+  selfIntroductionId Int              @map("self_intro_id")
+  question           String
+  answer             String?
+  aiGuide            String?          @map("ai_guide")
+  orderIndex         Int              @map("order_index")
+  selfIntroduction   SelfIntroduction @relation(fields: [selfIntroductionId], references: [id], onDelete: Cascade)
+
+  @@map("self_intro_items")
+}

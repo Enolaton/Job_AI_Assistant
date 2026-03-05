@@ -1,6 +1,6 @@
 import NextAuth from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
-import clientPromise from "@/lib/mongodb";
+import prisma from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 
 const handler = NextAuth({
@@ -16,12 +16,9 @@ const handler = NextAuth({
                     return null;
                 }
 
-                const client = await clientPromise;
-                const db = client.db("job_ai_database");
-
-                // DB에서 사용자 조회
-                const user = await db.collection("users").findOne({
-                    email: credentials.email
+                // DB에서 사용자 조회 (PostgreSQL via Prisma)
+                const user = await prisma.user.findUnique({
+                    where: { email: credentials.email }
                 });
 
                 if (!user) {
@@ -39,7 +36,7 @@ const handler = NextAuth({
                 }
 
                 return {
-                    id: user._id.toString(),
+                    id: user.id,
                     name: user.name,
                     email: user.email,
                 };
@@ -56,3 +53,4 @@ const handler = NextAuth({
 });
 
 export { handler as GET, handler as POST };
+
