@@ -5,32 +5,39 @@ import { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import toast from 'react-hot-toast';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [attempts, setAttempts] = useState(0);
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    // NextAuth를 이용한 로그인 실행
     const result = await signIn('credentials', {
-      redirect: false, // 커스텀 처리를 위해 자동 리다이렉트 방지
+      redirect: false,
       email,
       password,
     });
 
     if (result?.error) {
-      alert('아이디 또는 비밀번호가 틀렸습니다.');
+      const newAttempts = attempts + 1;
+      setAttempts(newAttempts);
+      toast.error('이메일 또는 비밀번호가 잘못되었습니다.');
       setError('이메일 또는 비밀번호가 일치하지 않습니다.');
-    } else {
-      // 로그인 성공 시 유저플로우 상 다음 단계인 대시보드(URL 입력 화면)로 이동
-      router.push('/dashboard');
+      if (newAttempts >= 5) {
+        router.push('/'); // redirect to main page after 5 failures
+        return;
+      }
+      return;
     }
 
+    // 로그인 성공
+    router.push('/dashboard');
   };
 
   return (
@@ -41,9 +48,8 @@ export default function LoginPage() {
           <p className="mt-3 text-gray-500 font-medium">지능형 커리어 에이전트</p>
         </div>
 
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+        <form className="mt-8 space-y-6" onSubmit={handleSubmit} noValidate>
           <div className="space-y-4">
-
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">이메일</label>
               <input
