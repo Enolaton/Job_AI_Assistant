@@ -7,9 +7,9 @@ export async function POST(request: Request) {
     const { email, password, name } = await request.json();
 
     // 1. 이름 검증
-    const nameRegex = /^[a-zA-Z가-힣]{1,9}$/;
+    const nameRegex = /^[a-zA-Z가-힣]{1,19}$/;
     if (!nameRegex.test(name)) {
-      return NextResponse.json({ message: "이름은 한글 또는 영어 1~9자 이하여야 합니다." }, { status: 400 });
+      return NextResponse.json({ message: "이름은 한글 또는 영어 1~19자 이하여야 합니다." }, { status: 400 });
     }
 
     // 2. 이메일 검증
@@ -26,16 +26,22 @@ export async function POST(request: Request) {
     }
 
     // 상세 형식 검증 (RFC 준수 및 사용자 요청 반영)
-    const emailRegex = /^[a-zA-Z0-9._+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    const hasUpperCaseInDomain = /[A-Z]/.test(emailDomain);
+    const localRegex = /^[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*$/;
+    const domainPartRegex = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/;
+    const tldRegex = /^[a-zA-Z]{2,}$/;
+
+    const domainLabels = emailDomain.split('.');
+    const isDomainValid =
+      domainLabels.length >= 2 &&
+      domainLabels.every(label => domainPartRegex.test(label)) &&
+      tldRegex.test(domainLabels[domainLabels.length - 1]);
 
     if (
-      !emailRegex.test(email) ||
-      email.includes("..") ||
-      emailDomain.startsWith(".") ||
       email.includes(" ") ||
       email.length > 320 ||
-      hasUpperCaseInDomain
+      emailDomain.includes("xn--") ||
+      !localRegex.test(emailPrefix) ||
+      !isDomainValid
     ) {
       return NextResponse.json({ message: "올바르지 않은 이메일 형식입니다." }, { status: 400 });
     }

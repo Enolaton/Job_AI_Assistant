@@ -16,10 +16,10 @@ export default function RegisterPage() {
     e.preventDefault();
     setIsLoading(true);
 
-    // 1. 이름 검증: 한글/영어 1~9자
-    const nameRegex = /^[a-zA-Z가-힣]{1,9}$/;
+    // 1. 이름 검증: 한글/영어 1~19자
+    const nameRegex = /^[a-zA-Z가-힣]{1,19}$/;
     if (!nameRegex.test(formData.name)) {
-      toast.error("이름은 한글 또는 영어 1~9자 이하여야 합니다.");
+      toast.error("이름은 한글 또는 영어 1~19자여야 합니다.");
       setIsLoading(false);
       return;
     }
@@ -44,18 +44,22 @@ export default function RegisterPage() {
       return;
     }
 
-    const emailRegex = /^[a-zA-Z0-9._+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    const localRegex = /^[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*$/;
+    const domainPartRegex = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/;
+    const tldRegex = /^[a-zA-Z]{2,}$/;
 
-    // 도메인 부분에 대문자가 포함되어 있는지 확인 (사용자 요청: 도메인은 소문자여야 함)
-    const hasUpperCaseInDomain = /[A-Z]/.test(emailDomain);
+    const domainLabels = emailDomain.split('.');
+    const isDomainValid =
+      domainLabels.length >= 2 &&
+      domainLabels.every(label => domainPartRegex.test(label)) &&
+      tldRegex.test(domainLabels[domainLabels.length - 1]);
 
     if (
-      !emailRegex.test(email) ||
-      email.includes("..") ||
-      emailDomain.startsWith(".") ||
       email.includes(" ") ||
       email.length > 320 ||
-      hasUpperCaseInDomain
+      emailDomain.includes("xn--") ||
+      !localRegex.test(emailPrefix) ||
+      !isDomainValid
     ) {
       toast.error("올바르지 않은 이메일 형식입니다.");
       setIsLoading(false);
@@ -193,10 +197,10 @@ export default function RegisterPage() {
               <button
                 type="button"
                 onClick={() => router.push('/login')}
-                className="w-full py-4 bg-white text-slate-500 rounded-2xl font-bold text-sm hover:bg-slate-50 hover:text-slate-900 transition-all flex items-center justify-center gap-2"
+                className="w-full py-4 bg-white text-slate-500 rounded-2xl font-bold text-sm hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
               >
                 <ArrowLeft size={18} />
-                이미 계정이 있으신가요? 로그인
+                이미 계정이 있으신가요? <span className="text-blue-600">로그인</span>
               </button>
             </div>
           </form>
