@@ -44,34 +44,7 @@ import { useSession, signOut } from 'next-auth/react';
 import type { ViewType, Experience } from './dashboard.types';
 
 // --- Mock Data ---
-const MOCK_EXPERIENCES: Experience[] = [
-    {
-        id: '1',
-        title: 'Q3 매출 25% 증대',
-        tags: ['영업 리더십', 'CRM 최적화', '팀 교육'],
-        date: '2일 전',
-        situation: '신규 경쟁사의 시장 진입으로 인해 Q3 매출이 목표치 대비 15% 미달할 것으로 예상되었습니다.',
-        task: '5명의 SDR 팀을 이끌고 새로운 시장을 발굴하여 예상 적자를 만회해야 했습니다.',
-        action: "콜드 아웃리치를 위한 일일 '파워 아워'를 도입하고, 구매 의사가 높은 리드를 우선순위로 두도록 CRM 파이프라인을 재구성했습니다. 또한 경쟁사의 기능에 대응하는 새로운 반론 극복 스크립트를 작성했습니다.",
-        result: '적자를 만회했을 뿐만 아니라 원래 목표를 10% 초과 달성했습니다. 팀은 총 25만 달러 규모의 신규 기업 계약 15건을 체결했습니다.',
-        insight: '이 경험을 통해 위기 상황에서 팀의 사기가 전략만큼 중요하다는 것을 배웠습니다. 파워 아워를 도입해 스트레스 상황을 경쟁적이고 활기찬 도전으로 바꾸었습니다.',
-        insightTags: ['회복탄력성', '혁신'],
-        type: 'leadership'
-    },
-    {
-        id: '2',
-        title: '다기능 제품 출시 관리',
-        tags: ['프로젝트 관리', '이해관계자 관리'],
-        date: '5일 전',
-        situation: '복잡한 제품 출시 과정에서 여러 부서 간의 소통 부재로 일정이 지연되고 있었습니다.',
-        task: '출시 일정을 준수하기 위해 부서 간 협업 프로세스를 재정립해야 했습니다.',
-        action: '주간 동기화 회의를 도입하고 공유 문서를 통해 실시간 진행 상황을 추적했습니다.',
-        result: '최종적으로 예정된 출시일보다 3일 앞당겨 제품을 성공적으로 런칭했습니다.',
-        insight: '명확한 커뮤니케이션 채널이 프로젝트 성공의 핵심임을 깨달았습니다.',
-        insightTags: ['협업', '효율성'],
-        type: 'project'
-    }
-];
+const MOCK_EXPERIENCES: Experience[] = [];
 
 export default function DashboardClient() {
     const { data: session } = useSession();
@@ -577,23 +550,38 @@ function WorkspaceView() {
 
 function ExperienceBankView() {
     return (
-        <div className="h-full overflow-y-auto custom-scrollbar p-8 max-w-5xl mx-auto">
+        <div className="h-full overflow-y-auto custom-scrollbar p-8 max-w-5xl mx-auto flex flex-col">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
                 <div className="flex flex-col gap-2">
                     <h1 className="text-3xl font-black tracking-tight text-slate-900">경험 뱅크</h1>
                     <p className="text-slate-500 text-base max-w-2xl">
-                        STARI 프레임워크를 사용하여 전문적인 스토리를 관리하고 다듬으세요.
+                        나만의 경험을 체계적으로 기록하고 관리하세요. AI가 직무 역량에 맞춰 다듬어 드립니다.
                     </p>
                 </div>
-                <button className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-600/20 transition-all hover:scale-105">
-                    <PlusCircle size={20} /> <span>새로운 경험 추가</span>
-                </button>
+                {MOCK_EXPERIENCES.length > 0 && (
+                    <button className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-600/20 transition-all hover:scale-105">
+                        <PlusCircle size={20} /> <span>내 경험 추가</span>
+                    </button>
+                )}
             </div>
 
-            <div className="space-y-6">
-                {MOCK_EXPERIENCES.map(exp => (
-                    <ExperienceCard key={exp.id} experience={exp} />
-                ))}
+            <div className="flex-1 space-y-6">
+                {MOCK_EXPERIENCES.length > 0 ? (
+                    MOCK_EXPERIENCES.map(exp => (
+                        <ExperienceCard key={exp.id} experience={exp} />
+                    ))
+                ) : (
+                    <div className="bg-white rounded-2xl border-2 border-slate-200 border-dashed p-16 text-center flex flex-col items-center justify-center h-full min-h-[400px]">
+                        <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-4">
+                            <Database size={32} className="text-slate-400" />
+                        </div>
+                        <h3 className="text-xl font-bold text-slate-900 mb-2">아직 내 경험이 없습니다</h3>
+                        <p className="text-slate-500 mb-6 w-full max-w-sm">추가해 주세요.<br />새로운 경험을 추가해 나만의 커리어 자산을 만들어보세요.</p>
+                        <button className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 py-3.5 rounded-xl font-bold transition-all shadow-md shadow-blue-600/20 hover:scale-105">
+                            <PlusCircle size={20} /> <span>내 경험 추가</span>
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );

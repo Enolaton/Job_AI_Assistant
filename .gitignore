@@ -14,8 +14,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# lib/ 및 lib64/ 삭제 (Next.js의 lib 폴더와 충돌 방지)
 parts/
 sdist/
 var/
@@ -235,3 +234,9 @@ Thumbs.db
 
 # Testing
 coverage/
+
+# analysis_final.py
+analysis_final.py
+.env
+google_key.json
+__pycache__/
