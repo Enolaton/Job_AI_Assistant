@@ -1,17 +1,17 @@
 export type ViewType = 'dashboard' | 'workspace' | 'experience' | 'analysis' | 'interview';
 
 export interface Experience {
-    id: string;
+    id: number;
     title: string;
-    tags: string[];
-    date: string;
+    tags: string | string[];
+    date?: string;
     situation: string;
     task: string;
     action: string;
     result: string;
     insight: string;
-    insightTags: string[];
-    type: 'leadership' | 'tech' | 'conflict' | 'project';
+    insightTags?: string[];
+    type?: string;
 }
 
 export interface AnalysisReport {

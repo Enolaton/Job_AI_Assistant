@@ -37,7 +37,8 @@ import {
     Target,
     Loader2,
     LogOut,
-    Mic
+    Mic,
+    Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useSession, signOut } from 'next-auth/react';
@@ -549,6 +550,136 @@ function WorkspaceView() {
 }
 
 function ExperienceBankView() {
+    const [documents, setDocuments] = useState<any[]>([]);
+    const [experiences, setExperiences] = useState<Experience[]>([]);
+    const [uploadingType, setUploadingType] = useState<string | null>(null);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+    React.useEffect(() => {
+        fetch(`/api/check?t=${Date.now()}`)
+            .then(res => res.json())
+            .then(data => console.log('CHECK RESPONSE:', data))
+            .catch(err => console.error('CHECK FAILED:', err));
+
+        fetch(`/api/hello?t=${Date.now()}`)
+            .then(res => res.json())
+            .then(data => {
+                console.log('HELLO RESPONSE:', data);
+                // fetch original docs and experiences
+                fetch(`/api/bank?t=${Date.now()}`)
+                    .then(res => {
+                        console.log('[GET Bank Data] Status:', res.status);
+                        return res.json();
+                    })
+                    .then(data => {
+                        if (data.documents) setDocuments(data.documents);
+                        if (data.experiences) setExperiences(data.experiences);
+                    })
+                    .catch(err => console.error('[GET Bank Data] Failed:', err));
+            });
+    }, []);
+
+    const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: string) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setUploadingType(type);
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('type', type);
+
+        try {
+            const res = await fetch(`/api/bank?t=${Date.now()}`, {
+                method: 'POST',
+                body: formData,
+            });
+            console.log('[Upload] Status:', res.status);
+            const data = await res.json();
+            if (res.status !== 200) throw new Error(data.error || `Error ${res.status}`);
+
+            setDocuments(prev => [...prev, data]);
+            alert('업로드 완료되었습니다.');
+        } catch (error) {
+            console.error(error);
+            alert('업로드 중 오류가 발생했습니다.');
+        } finally {
+            setUploadingType(null);
+            if (e.target) e.target.value = ''; // Reset input
+        }
+    };
+
+    const handleDelete = async (id: string) => {
+        if (!confirm('정말 삭제하시겠습니까?')) return;
+
+        try {
+            const res = await fetch(`/api/bank?id=${id}&t=${Date.now()}`, {
+                method: 'DELETE',
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+
+            setDocuments(prev => prev.filter(d => d.id !== id));
+            alert('삭제되었습니다.');
+        } catch (error: any) {
+            console.error(error);
+            alert(`삭제 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`);
+        }
+    };
+
+    const handleDeleteExperience = async (id: number) => {
+        if (!confirm('이 경험 기록을 삭제하시겠습니까?')) return;
+
+        try {
+            const res = await fetch(`/api/bank?expId=${id}&t=${Date.now()}`, {
+                method: 'DELETE',
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+
+            setExperiences(prev => prev.filter(e => e.id !== id));
+            alert('경험 기록이 삭제되었습니다.');
+        } catch (error: any) {
+            console.error(error);
+            alert(`삭제 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`);
+        }
+    };
+
+    const handleAnalyze = async () => {
+        if (documents.length === 0) {
+            alert('먼저 서류를 업로드해 주세요.');
+            return;
+        }
+
+        setIsAnalyzing(true);
+        try {
+            const res = await fetch(`/api/bank?t=${Date.now()}`, { method: 'PUT' });
+
+            // Check if response is not JSON (might be 404 or other HTML error)
+            const contentType = res.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                const text = await res.text();
+                console.error('Non-JSON response:', text);
+                throw new Error(`서버 응답 오류 (Status: ${res.status}). 관리자에게 문의하세요.`);
+            }
+
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+
+            // Replace old experiences with fresh analysis results
+            if (data.experiences && data.experiences.length > 0) {
+                setExperiences(data.experiences);
+                alert(`${data.experiences.length}개의 새로운 경험이 분석되어 저장되었습니다!`);
+            } else {
+                alert('추가로 분석된 새로운 경험이 없습니다.');
+            }
+        } catch (error: any) {
+            console.error('[DashboardClient] Analysis error:', error);
+            alert(`분석 중 오류가 발생했습니다: ${error.message}`);
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
+
     return (
         <div className="h-full overflow-y-auto custom-scrollbar p-8 max-w-5xl mx-auto flex flex-col">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
@@ -565,24 +696,52 @@ function ExperienceBankView() {
                 )}
             </div>
 
-            <div className="flex-1 space-y-6">
-                {MOCK_EXPERIENCES.length > 0 ? (
-                    MOCK_EXPERIENCES.map(exp => (
-                        <ExperienceCard key={exp.id} experience={exp} />
-                    ))
-                ) : (
-                    <div className="bg-white rounded-2xl border-2 border-slate-200 border-dashed p-16 text-center flex flex-col items-center justify-center h-full min-h-[400px]">
-                        <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-4">
-                            <Database size={32} className="text-slate-400" />
-                        </div>
-                        <h3 className="text-xl font-bold text-slate-900 mb-2">아직 내 경험이 없습니다</h3>
-                        <p className="text-slate-500 mb-6 w-full max-w-sm">추가해 주세요.<br />새로운 경험을 추가해 나만의 커리어 자산을 만들어보세요.</p>
-                        <button className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 py-3.5 rounded-xl font-bold transition-all shadow-md shadow-blue-600/20 hover:scale-105">
-                            <PlusCircle size={20} /> <span>내 경험 추가</span>
-                        </button>
-                    </div>
-                )}
+            {/* 기본 항목 업로드 영역 */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-8">
+                <h2 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+                    <FileText className="text-blue-600" size={24} /> 내 기본 서류
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <DocumentUploadCard type="RESUME" title="이력서" documents={documents} handleUpload={handleUpload} handleDelete={handleDelete} uploadingType={uploadingType} />
+                    <DocumentUploadCard type="COVER_LETTER" title="자기소개서" documents={documents} handleUpload={handleUpload} handleDelete={handleDelete} uploadingType={uploadingType} />
+                    <DocumentUploadCard type="PORTFOLIO" title="포트폴리오" documents={documents} handleUpload={handleUpload} handleDelete={handleDelete} uploadingType={uploadingType} />
+                </div>
+
+                <div className="mt-8 pt-6 border-t border-slate-100 flex justify-center">
+                    <button
+                        onClick={handleAnalyze}
+                        disabled={isAnalyzing || documents.length === 0}
+                        className={`flex items-center justify-center gap-2 px-10 py-4 bg-slate-900 text-white rounded-2xl font-bold text-lg transition-all shadow-xl hover:scale-105 active:scale-95 ${isAnalyzing || documents.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-800 shadow-slate-900/20'}`}
+                    >
+                        {isAnalyzing ? (
+                            <><Loader2 size={24} className="animate-spin" /> <span>경험 분석 중...</span></>
+                        ) : (
+                            <><Brain size={24} className="text-blue-400" /> <span>AI 경험 분석 시작</span></>
+                        )}
+                    </button>
+                </div>
+                <p className="text-center text-slate-400 text-sm mt-4">
+                    업로드한 이력서와 포트폴리오를 AI가 분석하여 직무 역량을 한눈에 정리해 드립니다.
+                </p>
             </div>
+
+            {/* AI 분석 결과 영역 (experiences가 있을 때만 노출) */}
+            {experiences.length > 0 && (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-8 mt-4 animate-in fade-in zoom-in duration-300">
+                    <h2 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
+                        <Brain className="text-blue-600" size={24} /> AI 분석 완료된 내 경험 (STARI)
+                    </h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
+                        {experiences.map(exp => (
+                            <ExperienceCard
+                                key={exp.id || Math.random().toString()}
+                                experience={exp}
+                                onDelete={() => exp.id && handleDeleteExperience(exp.id)}
+                            />
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -636,22 +795,126 @@ function MockInterviewView() {
     );
 }
 
-function ExperienceCard({ experience }: { experience: Experience }) {
+function ExperienceCard({ experience, onDelete }: { experience: Experience, onDelete?: () => void }) {
     const [isOpen, setIsOpen] = useState(false);
+
+    // Parse tags if they are string-encoded JSON
+    let displayTags: string[] = [];
+    try {
+        if (typeof experience.tags === 'string') {
+            displayTags = JSON.parse(experience.tags);
+        } else if (Array.isArray(experience.tags)) {
+            displayTags = experience.tags;
+        }
+    } catch (e) {
+        displayTags = [];
+    }
 
     return (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden transition-all hover:shadow-md">
             <div className="p-6 cursor-pointer" onClick={() => setIsOpen(!isOpen)}>
                 <div className="flex justify-between items-center">
-                    <h3 className="text-lg font-bold text-slate-900">{experience.title}</h3>
-                    <ChevronRight size={20} className={`transform transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                    <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                            {displayTags.map(tag => (
+                                <span key={tag} className="text-[10px] font-bold px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full">{tag}</span>
+                            ))}
+                        </div>
+                        <h3 className="text-lg font-bold text-slate-900">{experience.title}</h3>
+                    </div>
+                    <ChevronRight size={20} className={`text-slate-400 transform transition-transform ${isOpen ? 'rotate-90' : ''}`} />
                 </div>
             </div>
             {isOpen && (
-                <div className="px-6 pb-6 pt-2 bg-slate-50/30">
-                    <p className="text-sm text-slate-700">{experience.situation}</p>
+                <div className="px-6 pb-6 pt-2 bg-slate-50/30 border-t border-slate-100 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <StarISection label="Situation" content={experience.situation} color="text-blue-600" bgColor="bg-blue-50" />
+                        <StarISection label="Task" content={experience.task} color="text-purple-600" bgColor="bg-purple-50" />
+                        <StarISection label="Action" content={experience.action} color="text-orange-600" bgColor="bg-orange-50" />
+                        <StarISection label="Result" content={experience.result} color="text-green-600" bgColor="bg-green-50" />
+                    </div>
+                    <div className="p-4 bg-slate-900 rounded-xl">
+                        <div className="flex items-center gap-2 text-white font-bold text-xs mb-2">
+                            <Zap size={14} className="text-yellow-400 fill-yellow-400" /> Insight
+                        </div>
+                        <p className="text-slate-300 text-sm italic leading-relaxed">
+                            "{experience.insight}"
+                        </p>
+                    </div>
+                    <div className="flex justify-end gap-3 pt-2">
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onDelete?.();
+                            }}
+                            className="text-xs text-slate-400 hover:text-red-500 font-medium flex items-center gap-1"
+                        >
+                            <Trash2 size={14} /> 삭제하기
+                        </button>
+                    </div>
                 </div>
             )}
+        </div>
+    );
+}
+
+function StarISection({ label, content, color, bgColor }: { label: string, content: string, color: string, bgColor: string }) {
+    return (
+        <div className="space-y-1">
+            <div className={`text-[10px] font-black uppercase tracking-widest ${color} ${bgColor} w-fit px-2 py-0.5 rounded`}>
+                {label}
+            </div>
+            <p className="text-sm text-slate-700 leading-relaxed pl-1">
+                {content}
+            </p>
+        </div>
+    );
+}
+
+function DocumentUploadCard({ type, title, documents, handleUpload, handleDelete, uploadingType }: { type: string, title: string, documents: any[], handleUpload: (e: React.ChangeEvent<HTMLInputElement>, type: string) => void, handleDelete: (id: string) => void, uploadingType: string | null }) {
+    const categoryDocs = documents.filter(d => d.type === type);
+    const fileRef = React.useRef<HTMLInputElement>(null);
+
+    return (
+        <div className="border border-slate-200 rounded-xl p-5 flex flex-col hover:border-blue-400 transition-colors bg-slate-50 relative group min-h-[220px]">
+            <div className="flex justify-between items-start mb-4">
+                <h3 className="font-bold text-slate-900 text-lg">{title}</h3>
+                {categoryDocs.length > 0 ? <CheckCircle2 size={24} className="text-green-500" /> : <FileText size={24} className="text-slate-300" />}
+            </div>
+
+            <div className="flex-1 space-y-3 mb-6 overflow-y-auto max-h-[120px] custom-scrollbar pr-1">
+                {categoryDocs.length > 0 ? (
+                    categoryDocs.map((doc) => (
+                        <div key={doc.id} className="flex flex-col gap-1 p-2 bg-white rounded-lg border border-slate-100 shadow-sm group/item">
+                            <div className="flex justify-between items-start gap-2">
+                                <a href={doc.fileUrl} target="_blank" rel="noreferrer" className="text-sm text-blue-600 hover:underline font-medium truncate flex-1 flex items-center gap-1">
+                                    <LinkIcon size={12} /> {doc.fileName}
+                                </a>
+                                <button
+                                    onClick={() => handleDelete(doc.id)}
+                                    className="text-slate-400 hover:text-red-500 transition-colors shrink-0"
+                                    title="삭제"
+                                >
+                                    <Trash2 size={14} />
+                                </button>
+                            </div>
+                        </div>
+                    ))
+                ) : (
+                    <p className="text-sm text-slate-400 italic">등록된 파일이 없습니다.</p>
+                )}
+            </div>
+
+            <input type="file" ref={fileRef} className="hidden" onChange={(e) => handleUpload(e, type)} accept=".pdf,.doc,.docx,.hwp" />
+
+            <button
+                onClick={() => fileRef.current?.click()}
+                disabled={uploadingType === type}
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-white border border-slate-200 rounded-lg text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors shadow-sm mt-auto"
+            >
+                {uploadingType === type ? <Loader2 size={18} className="animate-spin text-blue-600" /> : <PlusCircle size={18} className="text-blue-600" />}
+                파일 추가하기
+            </button>
         </div>
     );
 }
