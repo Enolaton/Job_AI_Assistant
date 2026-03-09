@@ -9,13 +9,17 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@types/pdf-parse": "^1.1.5",
     "autoprefixer": "^10.4.27",
     "bcryptjs": "^2.4.3",
     "clsx": "^2.1.1",
     "lucide-react": "^0.577.0",
+    "mammoth": "1.11.0",
     "motion": "^12.34.5",
     "next": "15.1.0",
     "next-auth": "^4.24.11",
+    "openai": "^6.27.0",
+    "pdf-parse": "1.1.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-hot-toast": "^2.6.0",

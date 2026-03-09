@@ -18,6 +18,7 @@ model User {
   experiences       Experience[]
   jobAnalyses       JobAnalysis[]
   selfIntroductions SelfIntroduction[]
+  documents         UserDocument[]
 
   @@map("users")
 }
@@ -77,4 +78,17 @@ model SelfIntroItem {
   selfIntroduction   SelfIntroduction @relation(fields: [selfIntroductionId], references: [id], onDelete: Cascade)
 
   @@map("self_intro_items")
+}
+
+model UserDocument {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  type      String   // 'RESUME', 'COVER_LETTER', 'PORTFOLIO'
+  fileName  String   @map("file_name")
+  fileUrl   String   @map("file_url")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_documents")
 }

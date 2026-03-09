@@ -240,3 +240,7 @@ analysis_final.py
 .env
 google_key.json
 __pycache__/
+public/uploads/*
+!public/uploads/.gitkeep
+test*.js
+test-*.js
