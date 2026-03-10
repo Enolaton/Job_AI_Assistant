@@ -62,9 +62,11 @@ export async function POST(request: Request) {
     }
 
     // 3. 비밀번호 암호화
+    console.log("비밀번호 암호화 시작...");
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // 4. 사용자 데이터 저장 (PostgreSQL via Prisma)
+    console.log("Prisma 사용자 생성 시도...");
     const newUser = await prisma.user.create({
       data: {
         email,
@@ -77,9 +79,16 @@ export async function POST(request: Request) {
     console.log("회원가입 완료:", newUser.id);
 
     return NextResponse.json({ message: "회원가입에 성공했습니다!" }, { status: 201 });
-  } catch (error) {
-    console.error("회원가입 에러:", error);
-    return NextResponse.json({ message: "회원가입 중 서버 오류가 발생했습니다." }, { status: 500 });
+  } catch (error: any) {
+    console.error("회원가입 에러 상세:", {
+      message: error.message,
+      stack: error.stack,
+      code: error.code
+    });
+    return NextResponse.json({
+      message: "회원가입 중 서버 오류가 발생했습니다.",
+      error: error.message
+    }, { status: 500 });
   }
 }
 
