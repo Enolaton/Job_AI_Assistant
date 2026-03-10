@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import toast, { Toaster } from 'react-hot-toast';
 import {
     LayoutDashboard,
     Database,
@@ -22,6 +23,7 @@ import {
     CheckCircle2,
     Brain,
     Star,
+    Briefcase,
     MessageSquare,
     ShieldAlert,
     Info,
@@ -51,23 +53,87 @@ export default function DashboardClient() {
     const { data: session } = useSession();
     const [currentView, setCurrentView] = useState<ViewType>('dashboard');
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+    const [jdUrl, setJdUrl] = useState('');
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [analysisResult, setAnalysisResult] = useState<any>(null);
+
+    const handleAnalyze = async () => {
+        if (!jdUrl) {
+            toast.error('URL을 입력해주세요.');
+            return;
+        }
+
+        setIsAnalyzing(true);
+        setAnalysisResult(null);
+        const loadingToast = toast.loading('공고를 분석하고 있습니다. 약 1분 정도 소요됩니다...');
+
+        try {
+            const response = await fetch('/api/analyze/jd', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: jdUrl }),
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                setAnalysisResult(data.result);
+                toast.success('분석이 완료되었습니다!', { id: loadingToast });
+            } else {
+                throw new Error(data.error || '분석 중 오류가 발생했습니다.');
+            }
+        } catch (error: any) {
+            console.error('Analysis error:', error);
+            toast.error(error.message || '분석에 실패했습니다. 다시 시도해주세요.', { id: loadingToast });
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
 
     const userName = session?.user?.name || '사용자';
     const userEmail = session?.user?.email || 'user@example.com';
 
     const renderView = () => {
         switch (currentView) {
-            case 'dashboard': return <DashboardView userName={userName} />;
+            case 'dashboard': return (
+                <DashboardView
+                    userName={userName}
+                    jdUrl={jdUrl}
+                    setJdUrl={setJdUrl}
+                    isAnalyzing={isAnalyzing}
+                    onAnalyze={handleAnalyze}
+                    analysisResult={analysisResult}
+                />
+            );
             case 'workspace': return <WorkspaceView />;
             case 'experience': return <ExperienceBankView />;
-            case 'analysis': return <CompanyAnalysisView />;
+            case 'analysis': return (
+                <CompanyAnalysisView
+                    jdUrl={jdUrl}
+                    setJdUrl={setJdUrl}
+                    isAnalyzing={isAnalyzing}
+                    onAnalyze={handleAnalyze}
+                    analysisResult={analysisResult}
+                />
+            );
             case 'interview': return <MockInterviewView />;
-            default: return <DashboardView userName={userName} />;
+            default: return (
+                <DashboardView
+                    userName={userName}
+                    jdUrl={jdUrl}
+                    setJdUrl={setJdUrl}
+                    isAnalyzing={isAnalyzing}
+                    onAnalyze={handleAnalyze}
+                    analysisResult={analysisResult}
+                />
+            );
         }
     };
 
     return (
         <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
+            <Toaster position="top-right" />
+            {/* Sidebar */}
             {/* Sidebar */}
             <aside className={`bg-white border-r border-slate-200 flex flex-col transition-all duration-300 ${isSidebarOpen ? 'w-72' : 'w-20'}`}>
                 <div className="p-6 flex items-center gap-3">
@@ -189,7 +255,21 @@ function NavItem({ icon, label, active, onClick, collapsed, className }: { icon:
 
 // --- View Components ---
 
-function DashboardView({ userName }: { userName: string }) {
+function DashboardView({
+    userName,
+    jdUrl,
+    setJdUrl,
+    isAnalyzing,
+    onAnalyze,
+    analysisResult
+}: {
+    userName: string,
+    jdUrl: string,
+    setJdUrl: (url: string) => void,
+    isAnalyzing: boolean,
+    onAnalyze: () => void,
+    analysisResult: any
+}) {
     return (
         <div className="h-full overflow-y-auto custom-scrollbar p-8 max-w-6xl mx-auto space-y-8">
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -199,29 +279,10 @@ function DashboardView({ userName }: { userName: string }) {
                 </div>
             </div>
 
-            <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-8 shadow-xl text-white relative overflow-hidden group">
-                <div className="absolute top-0 right-0 p-12 opacity-10 transform translate-x-12 -translate-y-12">
-                    <BarChart3 size={160} />
-                </div>
-                <div className="relative z-10 max-w-3xl">
-                    <h2 className="text-2xl font-bold mb-2">빠른 분석 시작</h2>
-                    <p className="text-blue-100 mb-6 text-lg">채용 공고 URL을 입력하거나 파일을 업로드하여 AI 기반의 맞춤형 인사이트와 초안을 즉시 받아보세요.</p>
-                    <div className="bg-white p-2 rounded-xl shadow-lg flex flex-col md:flex-row gap-2">
-                        <div className="flex-1 flex items-center bg-slate-50 rounded-lg px-4 py-2 border border-slate-100 focus-within:ring-2 focus-within:ring-blue-600/30 transition-all">
-                            <LinkIcon className="text-slate-400 mr-3" size={20} />
-                            <input className="bg-transparent border-none focus:ring-0 w-full text-slate-800 placeholder-slate-400" placeholder="공고 URL을 여기에 붙여넣으세요..." type="text" />
-                        </div>
-                        <div className="flex gap-2">
-                            <button className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap">
-                                <UploadCloud size={18} />
-                                PDF 업로드
-                            </button>
-                            <button className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-md transition-colors flex items-center gap-2 whitespace-nowrap">
-                                지금 분석하기
-                                <ArrowRight size={18} />
-                            </button>
-                        </div>
-                    </div>
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-8 flex items-center justify-between">
+                <div>
+                    <h2 className="text-xl font-bold text-slate-900 mb-2">원하는 기업의 직무를 심층 분석해보세요</h2>
+                    <p className="text-slate-500">직무 분석 탭에서 채용 공고 URL을 입력하면, AI가 요구 역량을 추출해 드립니다.</p>
                 </div>
             </div>
 
@@ -267,16 +328,26 @@ function DashboardView({ userName }: { userName: string }) {
                     </button>
                 </div>
             </div>
+        </div >
+    );
+}
+
+
+function ResultItem({ label, value }: { label: string, value: string }) {
+    return (
+        <div className="flex flex-col">
+            <span className="text-blue-200 text-xs font-medium uppercase tracking-wider">{label}</span>
+            <span className="font-semibold text-white">{value || '-'}</span>
         </div>
     );
 }
 
-function StatCard({ icon, label, value, unit, badge, badgeColor, isTextValue }: { icon: React.ReactNode, label: string, value: string, unit: string, badge: string, badgeColor: string, isTextValue?: boolean }) {
+function StatCard({ icon, label, value, unit, badge, badgeColor, isTextValue }: { icon: React.ReactNode, label: string, value: string, unit: string, badge?: string, badgeColor?: string, isTextValue?: boolean }) {
     return (
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
             <div className="flex justify-between items-start mb-4">
                 <div className="p-3 bg-slate-50 rounded-xl">{icon}</div>
-                <span className={`${badgeColor} text-xs font-bold px-2 py-1 rounded-full`}>{badge}</span>
+                {badge && <span className={`${badgeColor} text-xs font-bold px-2 py-1 rounded-full`}>{badge}</span>}
             </div>
             <h3 className="text-slate-500 text-sm font-semibold uppercase tracking-wider mb-1">{label}</h3>
             <div className="flex items-end gap-2">
@@ -298,7 +369,7 @@ function ActivityItem({ icon, title, subtitle, status, statusColor }: { icon: Re
             <div className="h-12 w-12 rounded-lg bg-slate-50 flex items-center justify-center shrink-0">
                 {icon}
             </div>
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-0">
                 <h4 className="text-sm font-semibold text-slate-900 truncate">{title}</h4>
                 <p className="text-xs text-slate-500">{subtitle}</p>
             </div>
@@ -312,6 +383,7 @@ function ActivityItem({ icon, title, subtitle, status, statusColor }: { icon: Re
         </div>
     );
 }
+
 
 function WorkspaceView() {
     const [activeTab, setActiveTab] = useState(0);
@@ -746,16 +818,119 @@ function ExperienceBankView() {
     );
 }
 
-function CompanyAnalysisView() {
+function CompanyAnalysisView({
+    jdUrl,
+    setJdUrl,
+    isAnalyzing,
+    onAnalyze,
+    analysisResult
+}: {
+    jdUrl: string,
+    setJdUrl: (url: string) => void,
+    isAnalyzing: boolean,
+    onAnalyze: () => void,
+    analysisResult: any
+}) {
     return (
-        <div className="h-full overflow-y-auto custom-scrollbar p-8 max-w-6xl mx-auto">
-            <h1 className="text-3xl font-black text-slate-900 mb-8">Tesla Inc. 기업 분석 리포트</h1>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                <StatBox label="연간 매출" value="$96.7B" trend="+15%" trendColor="text-green-600" />
-                <StatBox label="순이익" value="$12.6B" trend="+4%" trendColor="text-green-600" />
-                <StatBox label="전년 대비 성장" value="18.3%" trend="-2%" trendColor="text-red-600" />
-                <StatBox label="시가총액" value="$750B" trend="+1.5%" trendColor="text-green-600" />
+        <div className="h-full overflow-y-auto custom-scrollbar p-8 max-w-6xl mx-auto space-y-8">
+            <div className="text-center max-w-2xl mx-auto mb-10">
+                <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <FileSearch size={32} />
+                </div>
+                <h1 className="text-4xl font-black text-slate-900 mb-4">AI 직무 및 기업 분석</h1>
+                <p className="text-slate-500 text-lg">채용 공고 URL을 입력하면, AI가 화면 속 여러 직무를 모두 찾아 핵심만 요약해 드립니다.</p>
             </div>
+
+            <div className="max-w-4xl mx-auto">
+                <div className="bg-white p-2 rounded-2xl shadow-xl border border-slate-200 flex flex-col md:flex-row gap-2">
+                    <div className="flex-1 flex items-center bg-slate-50 rounded-xl px-4 py-3 border border-slate-100 focus-within:ring-2 focus-within:ring-blue-600/30 transition-all">
+                        <LinkIcon className="text-slate-400 mr-3" size={24} />
+                        <input
+                            className="bg-transparent border-none focus:ring-0 w-full text-slate-800 placeholder-slate-400 text-lg"
+                            placeholder="채용 공고 URL을 입력하세요 (예: 사람인, 잡코리아 등)"
+                            type="text"
+                            value={jdUrl}
+                            onChange={(e) => setJdUrl(e.target.value)}
+                            disabled={isAnalyzing}
+                        />
+                    </div>
+                    <button
+                        onClick={onAnalyze}
+                        disabled={isAnalyzing || !jdUrl}
+                        className="px-8 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 whitespace-nowrap text-lg"
+                    >
+                        {isAnalyzing ? (
+                            <>
+                                <Loader2 size={24} className="animate-spin" />
+                                <span>AI 분석 중...</span>
+                            </>
+                        ) : (
+                            <>
+                                직무 스캔하기 <ArrowRight size={20} />
+                            </>
+                        )}
+                    </button>
+                </div>
+            </div>
+
+            {/* Analysis Results Display */}
+            {analysisResult && Array.isArray(analysisResult) && (
+                <motion.div
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-12 space-y-6"
+                >
+                    <div className="flex items-center gap-3 border-b border-slate-200 pb-4">
+                        <div className="px-3 py-1 bg-green-100 text-green-700 font-bold rounded-full text-sm">
+                            분석 완료
+                        </div>
+                        <h2 className="text-xl font-bold text-slate-900">
+                            이 공고에서 <span className="text-blue-600">{analysisResult.length}개</span>의 직무를 발견했어요!
+                        </h2>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
+                        {analysisResult.map((job: any, index: number) => (
+                            <div key={index} className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-lg transition-all hover:border-blue-300 group flex flex-col">
+                                <div className="flex justify-between items-start mb-4">
+                                    <div>
+                                        <span className="inline-block px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg mb-2">
+                                            {job.회사명 || '회사명 미상'}
+                                        </span>
+                                        <h3 className="text-xl font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
+                                            {job.모집직무 || '직무 미상'}
+                                        </h3>
+                                    </div>
+                                    <div className="bg-slate-50 p-2 rounded-lg text-slate-500">
+                                        <Briefcase size={20} />
+                                    </div>
+                                </div>
+
+                                <div className="flex-1 space-y-4 mb-6">
+                                    <div>
+                                        <h4 className="text-xs font-bold text-slate-400 uppercase mb-1">근무 조건</h4>
+                                        <p className="text-sm text-slate-700">
+                                            {job.근무지 || '근무지 미상'} &middot; {job.채용시작일 || '?'} ~ {job.채용마감일 || '?'}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <h4 className="text-xs font-bold text-slate-400 uppercase mb-1">주요 업무</h4>
+                                        <p className="text-sm text-slate-700 line-clamp-3">{job.주요업무}</p>
+                                    </div>
+                                    <div>
+                                        <h4 className="text-xs font-bold text-slate-400 uppercase mb-1">자격 요건</h4>
+                                        <p className="text-sm text-slate-700 line-clamp-3">{job.자격요건}</p>
+                                    </div>
+                                </div>
+
+                                <button className="w-full py-3 bg-slate-50 text-slate-700 hover:bg-slate-900 hover:text-white font-bold rounded-xl transition-colors border border-slate-200 flex items-center justify-center gap-2">
+                                    <Edit3 size={18} /> 이 직무로 자기소개서 쓰기
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </motion.div>
+            )}
         </div>
     );
 }

@@ -244,3 +244,4 @@ public/uploads/*
 !public/uploads/.gitkeep
 test*.js
 test-*.js
+debug_screenshot.png
