@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import prisma from "@/lib/prisma";
-import fs from 'fs/promises';
-import path from 'path';
 import { authOptions } from '@/lib/auth';
 import OpenAI from 'openai';
+import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,14 +13,22 @@ const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
 });
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabase = createClient(supabaseUrl, supabaseKey);
+
 async function extractTextFromFile(fileUrl: string): Promise<string> {
     console.log(`[bank] Extracting text from: ${fileUrl}`);
     try {
-        const fileName = fileUrl.split('/').pop();
-        if (!fileName) return '';
-        const filePath = path.join(process.cwd(), 'public', 'uploads', fileName);
-        const buffer = await fs.readFile(filePath);
-        const ext = path.extname(fileName).toLowerCase();
+        const response = await fetch(fileUrl);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch file: ${response.statusText}`);
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        
+        const fileName = fileUrl.split('/').pop() || '';
+        const ext = fileName.includes('.') ? `.${fileName.split('.').pop()?.toLowerCase()}` : '';
 
         if (ext === '.pdf') {
             const pdfModule = require('pdf-parse');
@@ -101,15 +108,25 @@ export async function POST(request: Request) {
         const bytes = await file.arrayBuffer();
         const buffer = Buffer.from(bytes);
 
-        const uploadDir = path.join(process.cwd(), 'public', 'uploads');
-        await fs.mkdir(uploadDir, { recursive: true });
-
         const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
         const fileName = `${uniqueSuffix}-${file.name.replace(/[^a-zA-Z0-9.\-_]/g, '')}`;
-        const filePath = path.join(uploadDir, fileName);
-        await fs.writeFile(filePath, buffer);
 
-        const fileUrl = `/uploads/${fileName}`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('experience_uploads')
+            .upload(fileName, buffer, {
+                contentType: file.type || 'application/octet-stream',
+            });
+
+        if (uploadError) {
+            console.error('Supabase upload error:', uploadError);
+            return NextResponse.json({ error: 'Failed to upload to cloud storage', detail: uploadError.message }, { status: 500 });
+        }
+
+        const { data: { publicUrl } } = supabase.storage
+            .from('experience_uploads')
+            .getPublicUrl(fileName);
+
+        const fileUrl = publicUrl;
 
         const user = await prisma.user.findUnique({
             where: { email: session.user.email },
@@ -185,8 +202,12 @@ export async function DELETE(request: Request) {
             try {
                 const fileName = document.fileUrl.split('/').pop();
                 if (fileName) {
-                    const filePath = path.join(process.cwd(), 'public', 'uploads', fileName);
-                    await fs.unlink(filePath);
+                    const { error: removeError } = await supabase.storage
+                        .from('experience_uploads')
+                        .remove([fileName]);
+                    if (removeError) {
+                        console.error('Supabase remove error:', removeError);
+                    }
                 }
             } catch (err) {
                 console.error('File deletion error:', err);
