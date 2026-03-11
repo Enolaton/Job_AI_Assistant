@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import path from 'path';
+import fs from 'fs';
 
 export async function POST(req: NextRequest) {
     try {
@@ -13,9 +14,10 @@ export async function POST(req: NextRequest) {
         // Python 스크립트 경로 설정
         const scriptPath = path.join(process.cwd(), 'app', 'analysis_JD.py');
 
-        // Python 실행 (환경에 따라 'python' 또는 'python3' 또는 특정 경로일 수 있음)
-        // 현재 사용자가 'saramin' 콘다 환경을 사용 중이므로 시스템의 python을 호출하도록 시도
-        const pythonProcess = spawn('python', [scriptPath, url], {
+        const venvPythonPath = path.join(process.cwd(), '.venv', 'Scripts', 'python.exe');
+        const pythonExecutable = fs.existsSync(venvPythonPath) ? venvPythonPath : 'python';
+
+        const pythonProcess = spawn(pythonExecutable, [scriptPath, url], {
             env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
         });
 

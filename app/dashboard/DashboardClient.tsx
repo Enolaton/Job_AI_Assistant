@@ -65,7 +65,6 @@ export default function DashboardClient() {
 
         setIsAnalyzing(true);
         setAnalysisResult(null);
-        const loadingToast = toast.loading('공고를 분석하고 있습니다. 약 1분 정도 소요됩니다...');
 
         try {
             const response = await fetch('/api/analyze/jd', {
@@ -78,13 +77,12 @@ export default function DashboardClient() {
 
             if (response.ok) {
                 setAnalysisResult(data.result);
-                toast.success('분석이 완료되었습니다!', { id: loadingToast });
             } else {
                 throw new Error(data.error || '분석 중 오류가 발생했습니다.');
             }
         } catch (error: any) {
             console.error('Analysis error:', error);
-            toast.error(error.message || '분석에 실패했습니다. 다시 시도해주세요.', { id: loadingToast });
+            toast.error(error.message || '분석에 실패했습니다. 다시 시도해주세요.');
         } finally {
             setIsAnalyzing(false);
         }
@@ -114,6 +112,7 @@ export default function DashboardClient() {
                     isAnalyzing={isAnalyzing}
                     onAnalyze={handleAnalyze}
                     analysisResult={analysisResult}
+                    onNavigateToWorkspace={() => setCurrentView('workspace')}
                 />
             );
             case 'interview': return <MockInterviewView />;
@@ -147,7 +146,7 @@ export default function DashboardClient() {
                     {isSidebarOpen && <div className="px-4 pb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">메뉴</div>}
                     <NavItem icon={<LayoutDashboard size={20} />} label="대시보드" active={currentView === 'dashboard'} onClick={() => setCurrentView('dashboard')} collapsed={!isSidebarOpen} />
                     <NavItem icon={<Database size={20} />} label="내 경험 뱅크" active={currentView === 'experience'} onClick={() => setCurrentView('experience')} collapsed={!isSidebarOpen} />
-                    <NavItem icon={<FileSearch size={20} />} label="직무 분석" active={currentView === 'analysis'} onClick={() => setCurrentView('analysis')} collapsed={!isSidebarOpen} />
+                    <NavItem icon={<FileSearch size={20} />} label="공고 분석" active={currentView === 'analysis'} onClick={() => setCurrentView('analysis')} collapsed={!isSidebarOpen} />
                     <NavItem icon={<Edit3 size={20} />} label="자기소개서" active={currentView === 'workspace'} onClick={() => setCurrentView('workspace')} collapsed={!isSidebarOpen} />
                     <NavItem icon={<Mic size={20} />} label="AI 모의 면접" active={currentView === 'interview'} onClick={() => setCurrentView('interview')} collapsed={!isSidebarOpen} />
 
@@ -191,7 +190,7 @@ export default function DashboardClient() {
                         <h2 className="text-lg font-bold text-slate-900 capitalize">
                             {currentView === 'experience' ? '경험 뱅크' :
                                 currentView === 'workspace' ? '자기소개서 작성' :
-                                    currentView === 'analysis' ? '직무 분석' :
+                                    currentView === 'analysis' ? '공고 분석' :
                                         currentView === 'interview' ? 'AI 모의 면접' : '대시보드'}
                         </h2>
                     </div>
@@ -282,7 +281,7 @@ function DashboardView({
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-8 flex items-center justify-between">
                 <div>
                     <h2 className="text-xl font-bold text-slate-900 mb-2">원하는 기업의 직무를 심층 분석해보세요</h2>
-                    <p className="text-slate-500">직무 분석 탭에서 채용 공고 URL을 입력하면, AI가 요구 역량을 추출해 드립니다.</p>
+                    <p className="text-slate-500">공고 분석 탭에서 채용 공고 URL을 입력하면, AI가 요구 역량을 추출해 드립니다.</p>
                 </div>
             </div>
 
@@ -299,7 +298,7 @@ function DashboardView({
                         <button className="text-sm text-blue-600 hover:underline">전체 보기</button>
                     </div>
                     <div className="space-y-4">
-                        <ActivityItem icon={<FileSearch className="text-blue-600" />} title="Product Manager @ Stripe" subtitle="직무 분석 • 2시간 전" status="완료됨" statusColor="bg-green-100 text-green-800" />
+                        <ActivityItem icon={<FileSearch className="text-blue-600" />} title="Product Manager @ Stripe" subtitle="공고 분석 • 2시간 전" status="완료됨" statusColor="bg-green-100 text-green-800" />
                         <ActivityItem icon={<Edit3 className="text-purple-600" />} title="Senior Frontend Dev Intro" subtitle="자기소개서 초안 • 어제" status="작성 중" statusColor="bg-yellow-100 text-yellow-800" />
                         <ActivityItem icon={<PlusCircle className="text-slate-400" />} title="새 STARI 기록 추가" subtitle="경험 뱅크 • 2일 전" />
                     </div>
@@ -823,16 +822,20 @@ function CompanyAnalysisView({
     setJdUrl,
     isAnalyzing,
     onAnalyze,
-    analysisResult
+    analysisResult,
+    onNavigateToWorkspace
 }: {
     jdUrl: string,
     setJdUrl: (url: string) => void,
     isAnalyzing: boolean,
     onAnalyze: () => void,
-    analysisResult: any
+    analysisResult: any,
+    onNavigateToWorkspace: () => void
 }) {
+    const [selectedJob, setSelectedJob] = React.useState<any>(null);
+
     return (
-        <div className="h-full overflow-y-auto custom-scrollbar p-8 max-w-6xl mx-auto space-y-8">
+        <div className="h-full overflow-y-auto custom-scrollbar p-8 max-w-6xl mx-auto space-y-8 relative">
             <div className="text-center max-w-2xl mx-auto mb-10">
                 <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
                     <FileSearch size={32} />
@@ -866,7 +869,7 @@ function CompanyAnalysisView({
                             </>
                         ) : (
                             <>
-                                직무 스캔하기 <ArrowRight size={20} />
+                                공고 분석하기 <ArrowRight size={20} />
                             </>
                         )}
                     </button>
@@ -889,9 +892,13 @@ function CompanyAnalysisView({
                         </h2>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {analysisResult.map((job: any, index: number) => (
-                            <div key={index} className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-lg transition-all hover:border-blue-300 group flex flex-col">
+                            <div 
+                                key={index} 
+                                onClick={() => setSelectedJob(job)}
+                                className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-xl transition-all hover:-translate-y-1 hover:border-blue-400 group flex flex-col cursor-pointer"
+                            >
                                 <div className="flex justify-between items-start mb-4">
                                     <div>
                                         <span className="inline-block px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg mb-2">
@@ -900,37 +907,108 @@ function CompanyAnalysisView({
                                         <h3 className="text-xl font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
                                             {job.모집직무 || '직무 미상'}
                                         </h3>
+                                        <span className="inline-block mt-2 px-2 py-1 bg-slate-100 text-slate-600 text-[10px] font-bold rounded-md">
+                                            {job.모집부문 || '부문 미상'}
+                                        </span>
                                     </div>
-                                    <div className="bg-slate-50 p-2 rounded-lg text-slate-500">
+                                    <div className="bg-slate-50 p-2 rounded-lg text-slate-500 group-hover:bg-blue-600 group-hover:text-white transition-colors">
                                         <Briefcase size={20} />
                                     </div>
                                 </div>
 
                                 <div className="flex-1 space-y-4 mb-6">
-                                    <div>
-                                        <h4 className="text-xs font-bold text-slate-400 uppercase mb-1">근무 조건</h4>
-                                        <p className="text-sm text-slate-700">
-                                            {job.근무지 || '근무지 미상'} &middot; {job.채용시작일 || '?'} ~ {job.채용마감일 || '?'}
-                                        </p>
+                                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 flex items-center gap-1"><CheckCircle2 size={12}/> 주요 업무</h4>
+                                        <p className="text-xs text-slate-700 line-clamp-3 leading-relaxed font-medium">{job.주요업무}</p>
                                     </div>
-                                    <div>
-                                        <h4 className="text-xs font-bold text-slate-400 uppercase mb-1">주요 업무</h4>
-                                        <p className="text-sm text-slate-700 line-clamp-3">{job.주요업무}</p>
-                                    </div>
-                                    <div>
-                                        <h4 className="text-xs font-bold text-slate-400 uppercase mb-1">자격 요건</h4>
-                                        <p className="text-sm text-slate-700 line-clamp-3">{job.자격요건}</p>
+                                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 flex items-center gap-1"><Star size={12}/> 자격 요건</h4>
+                                        <p className="text-xs text-slate-700 line-clamp-3 leading-relaxed font-medium">{job.자격요건}</p>
                                     </div>
                                 </div>
 
-                                <button className="w-full py-3 bg-slate-50 text-slate-700 hover:bg-slate-900 hover:text-white font-bold rounded-xl transition-colors border border-slate-200 flex items-center justify-center gap-2">
-                                    <Edit3 size={18} /> 이 직무로 자기소개서 쓰기
-                                </button>
+                                <div className="w-full py-3 bg-white text-blue-600 border border-blue-200 font-bold rounded-xl transition-colors text-sm flex items-center justify-center gap-2 group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-600">
+                                    자세히 보기 <ArrowRight size={16} />
+                                </div>
                             </div>
                         ))}
                     </div>
                 </motion.div>
             )}
+
+            {/* Detail Modal */}
+            <AnimatePresence>
+                {selectedJob && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+                        <motion.div 
+                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                            className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden relative"
+                        >
+                            <div className="p-6 border-b border-slate-100 bg-slate-50/50 relative">
+                                <button 
+                                    onClick={() => setSelectedJob(null)}
+                                    className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-full transition-colors"
+                                >
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                                </button>
+                                
+                                <span className="inline-block px-3 py-1 bg-blue-100 text-blue-700 text-xs font-black tracking-wider rounded-lg mb-3">
+                                    {selectedJob.회사명 || '회사명 미상'}
+                                </span>
+                                <h2 className="text-2xl font-black text-slate-900 mb-4">{selectedJob.모집직무 || '직무 미상'}</h2>
+                                
+                                <div className="flex flex-wrap gap-2 text-sm">
+                                    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 font-medium whitespace-nowrap">
+                                        <Target size={14} className="text-purple-500" /> {selectedJob.모집부문 || '부문 미상'}
+                                    </div>
+                                    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 font-medium whitespace-nowrap">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+                                        {selectedJob.근무지 || '근무지 미상'}
+                                    </div>
+                                    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 font-medium whitespace-nowrap">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-green-500"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                        {selectedJob.채용시작일 || '?'} ~ {selectedJob.채용마감일 || '?'}
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-white">
+                                <div className="bg-blue-50/50 p-5 rounded-2xl border border-blue-100">
+                                    <h4 className="text-sm font-black text-blue-900 flex items-center gap-2 mb-3">
+                                        <CheckCircle2 size={18} className="text-blue-600" /> 주요 업무 (Main Tasks)
+                                    </h4>
+                                    <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedJob.주요업무 || '내용 없음'}</p>
+                                </div>
+                                
+                                <div className="bg-purple-50/50 p-5 rounded-2xl border border-purple-100">
+                                    <h4 className="text-sm font-black text-purple-900 flex items-center gap-2 mb-3">
+                                        <Star size={18} className="text-purple-600" /> 자격 요건 (Requirements)
+                                    </h4>
+                                    <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedJob.자격요건 || '내용 없음'}</p>
+                                </div>
+                                
+                                <div className="bg-orange-50/50 p-5 rounded-2xl border border-orange-100">
+                                    <h4 className="text-sm font-black text-orange-900 flex items-center gap-2 mb-3">
+                                        <Diamond size={18} className="text-orange-600" /> 우대 사항 (Preferred)
+                                    </h4>
+                                    <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedJob.우대사항 || '내용 없음'}</p>
+                                </div>
+                            </div>
+                            
+                            <div className="p-6 border-t border-slate-100 bg-white shrink-0">
+                                <button 
+                                    onClick={onNavigateToWorkspace}
+                                    className="w-full py-4 fill-white bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-slate-900/20"
+                                >
+                                    <Edit3 size={18} /> 이 직무로 자기소개서 작성하기
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
         </div>
     );
 }

@@ -16,63 +16,162 @@ from google.cloud import vision
 
 load_dotenv()
 
-def _build_chrome_options() -> Options:
+def get_full_page_screenshot(url: str) -> Union[bytes, None]:
+    """DOM 청소 및 지연 로딩 우회 처리를 포함하여 페이지 전체 스크린샷 캡처."""
+    print(f"▶ URL 접속 중: {url}")
+    
+    # 브라우저 옵션 설정 (Headless 및 봇 탐지 우회)
     chrome_options = Options()
     chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--start-maximized")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-logging")
     chrome_options.add_argument("--log-level=3")
-    chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    chrome_options.add_argument(
-        "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    )
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled") # 봇 탐지 우회
+    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    chrome_options.add_experimental_option("useAutomationExtension", False)
-    return chrome_options
-
-def get_full_page_screenshot(url: str) -> Union[bytes, None]:
-    """페이지 전체를 단일 스크린샷으로 찍어 PNG bytes로 반환."""
-    chrome_options = _build_chrome_options()
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+    
     driver = webdriver.Chrome(options=chrome_options)
-    driver.set_page_load_timeout(60)
+    
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+        "source": "Object.defineProperty(navigator, 'webdriver', { get: () => undefined })"
+    })
+    
     try:
-        for attempt in range(3):
-            try:
-                driver.get(url)
-                break
-            except Exception as e:
-                if attempt < 2:
-                    time.sleep(3)
-                    continue
-                raise e
-        time.sleep(5)  # 충분한 로딩 대기
+        driver.get(url)
+        time.sleep(3)
         
-        # 1. 페이지 전체 너비와 주요 콘텐츠 높이 계산
-        total_width = driver.execute_script("return document.body.offsetWidth")
+        domain = urlparse(url).netloc
         
+        # 메인 프레임의 텍스트 일부 추출 (근무지, 채용일자 등 메타데이터 확보 목적)
+        # 토큰 절약을 위해 상단 1000자만 추출 (일반적으로 메타데이터는 500자 이내에 존재함)
+        top_text = ""
         try:
-            # 주요 공고 내용이 포함된 엘리먼트를 찾습니다.
-            # 사람인의 경우 보통 .jv_view 또는 .user_content 내부에 공고가 있습니다.
-            main_element = driver.find_element(By.CSS_SELECTOR, ".jv_view")
-            rect = main_element.rect
-            # 공고 내용의 끝 지점 + 여유분(100px)만 캡처 범위로 설정
-            target_height = int(rect['y'] + rect['height'] + 100)
-            print(f"💡 주요 공고 영역 감지 완료 (높이: {target_height}px). 하단 불필요 영역을 제외합니다.")
+            top_text = driver.find_element(By.TAG_NAME, "body").text[:1000]
         except Exception:
-            # 감지 실패 시 전체 높이 사용
-            target_height = driver.execute_script("return document.body.parentNode.scrollHeight")
-            print("⚠️ 주요 영역 감지 실패. 전체 페이지를 캡처합니다.")
+            pass
+            
+        # 최상단 광역 DOM 청소
+        print("▶ 화면 노이즈 제거(팝업, 배너, 하단 섹션 등) 진행 중...")
+        clear_all_noise_js = """
+        const allNoises = [
+            'header', 'nav', 'footer', 'dialog', 'aside',
+            '[class*="header"]', '[class*="nav"]', '[class*="footer"]', '[class*="aside"]',
+            '[class*="popup"]', '[id*="popup"]', '.layer_wrap', '.dimmed', '[class*="modal"]', '[id*="modal"]',
+            '.recommend_wrap', '.review_wrap', '#rec_recommend', '.company_info_wrap',
+            '[id*="gnb"]', '[class*="gnb"]',
+            '[class*="floating"]', '[id*="floating"]',
+            '[style*="position: fixed"]', '[style*="position: sticky"]', '[style*="position: absolute"]',
+            '[data-sentry-component="StrategyWrapper"]', '.related-tags', '#recommended-section',
+            '[data-sentry-component="Notice"]', '[data-sentry-component="AIRecommendList"]',
+            '[data-sentry-component="Aside"]', '[data-sentry-component="Banner"]', '.side-area', '.side-banner',
+            '[class*="ChipTag"]', '.artReadTag', '[class*="keyword"]', '[class*="banner"]',
+            'iframe[title*="광고"]', 'iframe[id*="google_ads"]'
+        ];
+        allNoises.forEach(selector => {
+            document.querySelectorAll(selector).forEach(el => { 
+                el.style.setProperty('display', 'none', 'important'); 
+            });
+        });
+
+        const targetComponents = ["StrategyWrapper", "BenefitCard", "CorpInformation", "ApplyBox"];
+        for (const compName of targetComponents) {
+            const startEl = document.querySelector(`[data-sentry-component="${compName}"]`);
+            if (startEl && compName === "StrategyWrapper") {
+                let next = startEl;
+                while(next) {
+                    next.style.setProperty('display', 'none', 'important');
+                    next = next.nextElementSibling;
+                }
+                break; 
+            } else if (startEl) {
+                let next = startEl.nextElementSibling;
+                while(next) {
+                    next.style.setProperty('display', 'none', 'important');
+                    next = next.nextElementSibling;
+                }
+            }
+        }
         
-        # 2. 브라우저 창 크기를 계산된 높이에 맞춤
-        driver.set_window_size(total_width, target_height)
+        document.querySelectorAll('div[style*="list-content"]').forEach(el => el.remove());
+        """
+        driver.execute_script(clear_all_noise_js)
+        time.sleep(1)
+
+        # iframe 타겟팅
+        if "saramin" in domain:
+            print("▶ 사람인 도메인 감지. iframe 내부 본문 진입을 시도합니다.")
+            try:
+                iframe = driver.find_element(By.ID, "iframe_content_0")
+                driver.switch_to.frame(iframe)
+                print("   ✅ 사람인 iframe 진입 성공")
+                time.sleep(1)
+            except Exception:
+                print("   ⚠️ iframe을 찾을 수 없습니다. 기본 페이지 캡처를 진행합니다.")
+                
+        elif "catch.co.kr" in domain:
+            print("▶ 캐치 도메인 감지. 채용상세 iframe 내부 진입을 시도합니다.")
+            try:
+                iframe = driver.find_element(By.XPATH, '//iframe[@title="채용상세"]')
+                driver.switch_to.frame(iframe)
+                print("   ✅ 캐치 iframe 진입 성공")
+                time.sleep(1)
+            except Exception:
+                print("   ⚠️ iframe을 찾을 수 없습니다. 기본 페이지 캡처를 진행합니다.")
+
+        # 고속 스크롤 (지연 로딩 이미지 렌더링)
+        print("▶ 지연 로딩 이미지 렌더링을 위해 스크롤 중...")
+        last_height = driver.execute_script("return document.body.scrollHeight")
+        max_scroll_attempts = 15
+        attempts = 0
+        current_position = 0
+        
+        while attempts < max_scroll_attempts:
+            attempts += 1
+            step_limit = min(last_height, 15000)
+            
+            while current_position < step_limit:
+                driver.execute_script(f"window.scrollTo(0, {current_position});")
+                current_position += 800
+                time.sleep(0.1)
+            
+            time.sleep(1.0)
+            new_height = driver.execute_script("return document.body.scrollHeight")
+            if new_height == last_height or current_position >= 15000:
+                break
+            last_height = new_height
+
+        driver.execute_script("window.scrollTo(0, 0);")
         time.sleep(1)
         
-        # 3. 스크린샷 캡처
-        screenshot = driver.get_screenshot_as_png()
-        return screenshot
+        print("▶ 지연 로딩된 노이즈 요소 추가 제거 중...")
+        driver.execute_script(clear_all_noise_js)
+        time.sleep(1)
+        
+        required_width = driver.execute_script('return document.documentElement.scrollWidth')
+        required_height = driver.execute_script('return document.body.scrollHeight')
+        
+        required_height += 150
+        required_height = min(required_height, 20000)
+        
+        print(f"▶ 창 크기 세팅 및 전체 캡처 진행 중... (예상 해상도: {required_width} x {required_height})")
+        driver.set_window_size(required_width, required_height)
+        time.sleep(2)
+        
+        # 전체 화면 캡처 저장 후 bytes로 반환
+        body = driver.find_element(By.TAG_NAME, "body")
+        screenshot = body.screenshot_as_png
+        print("✅ 최적화된 스크린샷 캡처 완료!")
+        
+        return screenshot, top_text
+        
     except Exception as e:
-        print(f"스크린샷 오류: {e}")
-        return None
+        print(f"❌ 캡처 중 오류 발생: {e}")
+        return None, ""
     finally:
         driver.quit()
 
@@ -231,6 +330,10 @@ def save_to_cloud_db(url: str, ocr_text: str, structured: dict):
         print(f"클라우드 DB 저장 중 오류 발생: {e}")
 
 def main() -> None:
+    # 윈도우 환경 등에서 출력 인코딩 깨짐을 방지하기 위해 UTF-8 강제 설정
+    if sys.stdout.encoding.lower() != 'utf-8':
+        sys.stdout.reconfigure(encoding='utf-8')
+        
     # 커맨드라인 인자가 있으면 사용하고, 없으면 사용자 입력을 받음
     if len(sys.argv) > 1:
         url = sys.argv[1].strip()
@@ -239,14 +342,15 @@ def main() -> None:
         
     if not url:
         print("URL이 비어 있습니다.")
-        return
+        sys.exit(1)
 
     try:
         print("웹페이지 전체 스크린샷 캡처 중...")
-        screenshot_bytes = get_full_page_screenshot(url)
+        screenshot_bytes, top_text = get_full_page_screenshot(url)
         if not screenshot_bytes:
             print("스크린샷을 생성하지 못했습니다.")
-            return
+            sys.exit(1)
+            
         print("스크린샷 완료, 로컬에 'debug_screenshot.png' 파일로 저장합니다...")
         with open("debug_screenshot.png", "wb") as f:
             f.write(screenshot_bytes)
@@ -256,14 +360,16 @@ def main() -> None:
         ocr_text = extract_text_with_google_vision(screenshot_bytes)
         if not ocr_text.strip():
             print("이미지에서 텍스트를 추출하지 못했습니다.")
-            return
+            sys.exit(1)
 
         print(f"OCR 완료 (추출된 텍스트 수: {len(ocr_text)}자). 추출된 원본 텍스트:")
         print("--------------------------------------------------")
         print(ocr_text)
         print("--------------------------------------------------")
         print("공고 요약 중...")
-        structured = summarize_with_openai(ocr_text)
+        
+        combined_text = f"=== 상단 메타데이터(근무지, 마감일 등) ===\n{top_text}\n\n=== 상세 본문 영역(OCR) ===\n{ocr_text}"
+        structured = summarize_with_openai(combined_text)
 
         print("\n=== 추출된 채용 정보(JSON) ===")
         print(json.dumps(structured, ensure_ascii=False, indent=2))
@@ -273,6 +379,7 @@ def main() -> None:
         
     except Exception as e:
         print(f"오류 발생: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
