@@ -2,18 +2,45 @@ import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import { PrismaClient } from '@prisma/client';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+
+const prisma = new PrismaClient();
 
 export async function POST(req: NextRequest) {
     try {
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.email) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { email: session.user.email },
+        });
+
+        if (!user) {
+            return NextResponse.json({ error: 'User not found' }, { status: 404 });
+        }
+
         const { url } = await req.json();
 
         if (!url) {
             return NextResponse.json({ error: 'URL is required' }, { status: 400 });
         }
 
-        // Python 스크립트 경로 설정
-        const scriptPath = path.join(process.cwd(), 'app', 'analysis_JD.py');
+        // --- 1. 클라우드 DB(PostgreSQL) 캐싱 확인 ---
+        const existingAnalysis = await prisma.jobAnalysis.findFirst({
+            where: { jdUrl: url }
+        });
 
+        if (existingAnalysis && existingAnalysis.analysisResult) {
+            console.log(`💡 [CACHE HIT] DB에서 기존 분석 결과를 가져왔습니다: ${url}`);
+            return NextResponse.json({ result: existingAnalysis.analysisResult });
+        }
+
+        // --- 2. DB에 없다면 파이썬 스크립트 실행 ---
+        const scriptPath = path.join(process.cwd(), 'app', 'analysis_JD.py');
         const venvPythonPath = path.join(process.cwd(), '.venv', 'Scripts', 'python.exe');
         const pythonExecutable = fs.existsSync(venvPythonPath) ? venvPythonPath : 'python';
 
@@ -31,9 +58,11 @@ export async function POST(req: NextRequest) {
 
             pythonProcess.stderr.on('data', (data) => {
                 stderrData += data.toString();
+                // stderr를 Node 진영의 콘솔에도 찍어줌
+                console.log(`[Python Log] ${data.toString().trim()}`);
             });
 
-            pythonProcess.on('close', (code) => {
+            pythonProcess.on('close', async (code) => {
                 if (code !== 0) {
                     console.error(`Python script error (code ${code}):`, stderrData);
                     resolve(NextResponse.json({ error: 'Analysis failed', details: stderrData }, { status: 500 }));
@@ -41,22 +70,31 @@ export async function POST(req: NextRequest) {
                 }
 
                 try {
-                    // 스크립트 출력 결과에서 JSON 부분만 추출
-                    // 스크립트가 "=== 추출된 채용 정보(JSON) ===\n{...}" 형식으로 출력함
-                    const jsonMarker = '=== 추출된 채용 정보(JSON) ===';
-                    const jsonStartIndex = stdoutData.indexOf(jsonMarker);
+                    // stdoutData에 오직 JSON만 들어있으므로 통째로 파싱
+                    const parsedData = JSON.parse(stdoutData.trim());
+                    const { raw_text, structured } = parsedData;
 
-                    if (jsonStartIndex === -1) {
-                        resolve(NextResponse.json({ error: 'Could not find JSON in output', output: stdoutData }, { status: 500 }));
-                        return;
-                    }
+                    // --- 3. 클라우드 DB에 결과 저장 (Prisma 활용) ---
+                    // 첫 번째 job(직무)에서 추천 제목 추출
+                    const companyName = structured[0]?.["회사명"] || "알수없음";
+                    const jobTitle = structured[0]?.["모집직무"] || "직무 미상";
 
-                    const jsonString = stdoutData.substring(jsonStartIndex + jsonMarker.length).trim();
-                    const result = JSON.parse(jsonString);
+                    await prisma.jobAnalysis.create({
+                        data: {
+                            userId: user.id,
+                            companyName,
+                            jobTitle,
+                            jdUrl: url,
+                            jdRawText: raw_text,
+                            analysisResult: structured
+                        }
+                    });
 
-                    resolve(NextResponse.json({ result }));
+                    console.log(`💡 [DB SAVED] 새로운 분석 결과를 DB에 저장했습니다: ${url}`);
+
+                    resolve(NextResponse.json({ result: structured }));
                 } catch (parseError) {
-                    console.error('Failed to parse Python output:', stdoutData);
+                    console.error('Failed to parse Python output. Raw output:', stdoutData);
                     resolve(NextResponse.json({ error: 'Failed to parse result', output: stdoutData }, { status: 500 }));
                 }
             });
@@ -64,6 +102,72 @@ export async function POST(req: NextRequest) {
 
     } catch (error) {
         console.error('API Error:', error);
+        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    }
+}
+
+export async function GET(req: NextRequest) {
+    try {
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.email) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { email: session.user.email },
+        });
+
+        if (!user) {
+            return NextResponse.json({ error: 'User not found' }, { status: 404 });
+        }
+
+        const history = await prisma.jobAnalysis.findMany({
+            where: { userId: user.id },
+            orderBy: { createdAt: 'desc' }
+        });
+
+        return NextResponse.json({ history });
+    } catch (error) {
+        console.error('API Error:', error);
+        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    }
+}
+
+export async function DELETE(req: NextRequest) {
+    try {
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.email) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { email: session.user.email },
+        });
+
+        if (!user) {
+            return NextResponse.json({ error: 'User not found' }, { status: 404 });
+        }
+
+        const url = new URL(req.url);
+        const idParam = url.searchParams.get('id');
+
+        if (!idParam) {
+            return NextResponse.json({ error: 'Missing id parameter' }, { status: 400 });
+        }
+
+        const id = parseInt(idParam, 10);
+
+        // Delete only if it belongs to the user
+        await prisma.jobAnalysis.deleteMany({
+            where: { 
+                id: id,
+                userId: user.id
+            }
+        });
+
+        return NextResponse.json({ success: true });
+    } catch (error) {
+        console.error('Delete API Error:', error);
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
 }

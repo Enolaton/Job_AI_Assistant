@@ -56,6 +56,7 @@ export default function DashboardClient() {
     const [jdUrl, setJdUrl] = useState('');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [analysisResult, setAnalysisResult] = useState<any>(null);
+    const [selectedJobForWorkspace, setSelectedJobForWorkspace] = useState<any>(null);
 
     const handleAnalyze = async () => {
         if (!jdUrl) {
@@ -103,7 +104,7 @@ export default function DashboardClient() {
                     analysisResult={analysisResult}
                 />
             );
-            case 'workspace': return <WorkspaceView />;
+            case 'workspace': return <WorkspaceView selectedJob={selectedJobForWorkspace} />;
             case 'experience': return <ExperienceBankView />;
             case 'analysis': return (
                 <CompanyAnalysisView
@@ -112,7 +113,11 @@ export default function DashboardClient() {
                     isAnalyzing={isAnalyzing}
                     onAnalyze={handleAnalyze}
                     analysisResult={analysisResult}
-                    onNavigateToWorkspace={() => setCurrentView('workspace')}
+                    setAnalysisResult={setAnalysisResult}
+                    onNavigateToWorkspace={(job) => {
+                        setSelectedJobForWorkspace(job);
+                        setCurrentView('workspace');
+                    }}
                 />
             );
             case 'interview': return <MockInterviewView />;
@@ -384,7 +389,7 @@ function ActivityItem({ icon, title, subtitle, status, statusColor }: { icon: Re
 }
 
 
-function WorkspaceView() {
+function WorkspaceView({ selectedJob }: { selectedJob?: any }) {
     const [activeTab, setActiveTab] = useState(0);
     const [content, setContent] = useState('');
     const [showEvaluation, setShowEvaluation] = useState(false);
@@ -427,9 +432,9 @@ function WorkspaceView() {
                 <div className="px-8 pt-6 pb-2">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 text-xs font-medium text-slate-400 mb-2">
-                            <span>삼성전자</span>
+                            <span>{selectedJob?.회사명 || '지원 기업'}</span>
                             <ChevronRight size={12} />
-                            <span>DX 부문</span>
+                            <span>{selectedJob?.모집부분 || selectedJob?.모집직무 || '지원 직무'}</span>
                             <ChevronRight size={12} />
                             <span className="text-blue-600">자기소개서 작성</span>
                         </div>
@@ -823,6 +828,7 @@ function CompanyAnalysisView({
     isAnalyzing,
     onAnalyze,
     analysisResult,
+    setAnalysisResult,
     onNavigateToWorkspace
 }: {
     jdUrl: string,
@@ -830,9 +836,52 @@ function CompanyAnalysisView({
     isAnalyzing: boolean,
     onAnalyze: () => void,
     analysisResult: any,
-    onNavigateToWorkspace: () => void
+    setAnalysisResult: (result: any) => void,
+    onNavigateToWorkspace: (job: any) => void
 }) {
     const [selectedJob, setSelectedJob] = React.useState<any>(null);
+    const [history, setHistory] = React.useState<any[]>([]);
+
+    React.useEffect(() => {
+        const fetchHistory = async () => {
+            try {
+                const res = await fetch('/api/analyze/jd');
+                const data = await res.json();
+                if (data.history) setHistory(data.history);
+            } catch (error) {
+                console.error('Failed to fetch history', error);
+            }
+        };
+        fetchHistory();
+    }, []);
+
+    const handleDeleteHistory = async (id: number) => {
+        if (!confirm('정말 삭제하시겠습니까?')) return;
+        try {
+            const res = await fetch(`/api/analyze/jd?id=${id}`, { method: 'DELETE' });
+            if (res.ok) {
+                setHistory(prev => prev.filter(item => item.id !== id));
+            } else {
+                alert('삭제에 실패했습니다.');
+            }
+        } catch (error) {
+            console.error(error);
+            alert('오류가 발생했습니다.');
+        }
+    };
+
+    const handleRestoreHistory = (item: any) => {
+        setJdUrl(item.jdUrl || '');
+        if (item.analysisResult) {
+            setAnalysisResult(item.analysisResult);
+        }
+    };
+
+    // Helper function to format date
+    const formatDate = (dateString: string) => {
+        const date = new Date(dateString);
+        return `${date.getMonth() + 1}월 ${date.getDate()}일`;
+    };
 
     return (
         <div className="h-full overflow-y-auto custom-scrollbar p-8 max-w-6xl mx-auto space-y-8 relative">
@@ -875,6 +924,46 @@ function CompanyAnalysisView({
                     </button>
                 </div>
             </div>
+
+            {/* Analysis History Display */}
+            {!analysisResult && history.length > 0 && (
+                <div className="max-w-4xl mx-auto mt-12 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                            <Database size={20} className="text-blue-500" /> 최근 분석한 공고
+                        </h2>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {history.slice(0, 4).map((item) => (
+                            <div 
+                                key={item.id}
+                                onClick={() => handleRestoreHistory(item)}
+                                className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-blue-400 transition-all cursor-pointer flex items-start gap-4"
+                            >
+                                <div className="p-3 bg-blue-50 text-blue-600 rounded-xl shrink-0">
+                                    <Briefcase size={20} />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-bold text-slate-400 mb-1">{item.companyName || '회사명 정보 없음'} · {formatDate(item.createdAt)}</p>
+                                    <p className="text-base font-bold text-slate-900 truncate">{item.jobTitle || '직무 정보 없음'}</p>
+                                </div>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteHistory(item.id);
+                                    }}
+                                    className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors shrink-0"
+                                >
+                                    <Trash2 size={18} />
+                                </button>
+                                <div className="text-slate-300">
+                                    <ChevronRight size={20} />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* Analysis Results Display */}
             {analysisResult && Array.isArray(analysisResult) && (
@@ -919,11 +1008,11 @@ function CompanyAnalysisView({
                                 <div className="flex-1 space-y-4 mb-6">
                                     <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                                         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 flex items-center gap-1"><CheckCircle2 size={12}/> 주요 업무</h4>
-                                        <p className="text-xs text-slate-700 line-clamp-3 leading-relaxed font-medium">{job.주요업무}</p>
+                                        <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed font-medium">{job.주요업무}</p>
                                     </div>
                                     <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                                         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 flex items-center gap-1"><Star size={12}/> 자격 요건</h4>
-                                        <p className="text-xs text-slate-700 line-clamp-3 leading-relaxed font-medium">{job.자격요건}</p>
+                                        <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed font-medium">{job.자격요건}</p>
                                     </div>
                                 </div>
 
@@ -999,7 +1088,7 @@ function CompanyAnalysisView({
                             
                             <div className="p-6 border-t border-slate-100 bg-white shrink-0">
                                 <button 
-                                    onClick={onNavigateToWorkspace}
+                                    onClick={() => onNavigateToWorkspace(selectedJob)}
                                     className="w-full py-4 fill-white bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-slate-900/20"
                                 >
                                     <Edit3 size={18} /> 이 직무로 자기소개서 작성하기
