@@ -18,7 +18,7 @@ load_dotenv()
 
 def get_full_page_screenshot(url: str) -> Union[bytes, None]:
     """DOM 청소 및 지연 로딩 우회 처리를 포함하여 페이지 전체 스크린샷 캡처."""
-    print(f"▶ URL 접속 중: {url}")
+    print(f"▶ URL 접속 중: {url}", file=sys.stderr)
     
     # 브라우저 옵션 설정 (Headless 및 봇 탐지 우회)
     chrome_options = Options()
@@ -56,7 +56,7 @@ def get_full_page_screenshot(url: str) -> Union[bytes, None]:
             pass
             
         # 최상단 광역 DOM 청소
-        print("▶ 화면 노이즈 제거(팝업, 배너, 하단 섹션 등) 진행 중...")
+        print("▶ 화면 노이즈 제거(팝업, 배너, 하단 섹션 등) 진행 중...", file=sys.stderr)
         clear_all_noise_js = """
         const allNoises = [
             'header', 'nav', 'footer', 'dialog', 'aside',
@@ -104,27 +104,27 @@ def get_full_page_screenshot(url: str) -> Union[bytes, None]:
 
         # iframe 타겟팅
         if "saramin" in domain:
-            print("▶ 사람인 도메인 감지. iframe 내부 본문 진입을 시도합니다.")
+            print("▶ 사람인 도메인 감지. iframe 내부 본문 진입을 시도합니다.", file=sys.stderr)
             try:
                 iframe = driver.find_element(By.ID, "iframe_content_0")
                 driver.switch_to.frame(iframe)
-                print("   ✅ 사람인 iframe 진입 성공")
+                print("   ✅ 사람인 iframe 진입 성공", file=sys.stderr)
                 time.sleep(1)
             except Exception:
-                print("   ⚠️ iframe을 찾을 수 없습니다. 기본 페이지 캡처를 진행합니다.")
+                print("   ⚠️ iframe을 찾을 수 없습니다. 기본 페이지 캡처를 진행합니다.", file=sys.stderr)
                 
         elif "catch.co.kr" in domain:
-            print("▶ 캐치 도메인 감지. 채용상세 iframe 내부 진입을 시도합니다.")
+            print("▶ 캐치 도메인 감지. 채용상세 iframe 내부 진입을 시도합니다.", file=sys.stderr)
             try:
                 iframe = driver.find_element(By.XPATH, '//iframe[@title="채용상세"]')
                 driver.switch_to.frame(iframe)
-                print("   ✅ 캐치 iframe 진입 성공")
+                print("   ✅ 캐치 iframe 진입 성공", file=sys.stderr)
                 time.sleep(1)
             except Exception:
-                print("   ⚠️ iframe을 찾을 수 없습니다. 기본 페이지 캡처를 진행합니다.")
+                print("   ⚠️ iframe을 찾을 수 없습니다. 기본 페이지 캡처를 진행합니다.", file=sys.stderr)
 
         # 고속 스크롤 (지연 로딩 이미지 렌더링)
-        print("▶ 지연 로딩 이미지 렌더링을 위해 스크롤 중...")
+        print("▶ 지연 로딩 이미지 렌더링을 위해 스크롤 중...", file=sys.stderr)
         last_height = driver.execute_script("return document.body.scrollHeight")
         max_scroll_attempts = 15
         attempts = 0
@@ -148,7 +148,7 @@ def get_full_page_screenshot(url: str) -> Union[bytes, None]:
         driver.execute_script("window.scrollTo(0, 0);")
         time.sleep(1)
         
-        print("▶ 지연 로딩된 노이즈 요소 추가 제거 중...")
+        print("▶ 지연 로딩된 노이즈 요소 추가 제거 중...", file=sys.stderr)
         driver.execute_script(clear_all_noise_js)
         time.sleep(1)
         
@@ -158,19 +158,19 @@ def get_full_page_screenshot(url: str) -> Union[bytes, None]:
         required_height += 150
         required_height = min(required_height, 20000)
         
-        print(f"▶ 창 크기 세팅 및 전체 캡처 진행 중... (예상 해상도: {required_width} x {required_height})")
+        print(f"▶ 창 크기 세팅 및 전체 캡처 진행 중... (예상 해상도: {required_width} x {required_height})", file=sys.stderr)
         driver.set_window_size(required_width, required_height)
         time.sleep(2)
         
         # 전체 화면 캡처 저장 후 bytes로 반환
         body = driver.find_element(By.TAG_NAME, "body")
         screenshot = body.screenshot_as_png
-        print("✅ 최적화된 스크린샷 캡처 완료!")
+        print("✅ 최적화된 스크린샷 캡처 완료!", file=sys.stderr)
         
         return screenshot, top_text
         
     except Exception as e:
-        print(f"❌ 캡처 중 오류 발생: {e}")
+        print(f"❌ 캡처 중 오류 발생: {e}", file=sys.stderr)
         return None, ""
     finally:
         driver.quit()
@@ -193,7 +193,7 @@ def extract_text_with_google_vision(image_bytes: bytes) -> str:
             return response.text_annotations[0].description
         return ""
     except Exception as e:
-        print(f"Google Vision API 연동 오류: {e}")
+        print(f"Google Vision API 연동 오류: {e}", file=sys.stderr)
         return ""
 
 def summarize_with_openai(ocr_text: str) -> dict:
@@ -222,7 +222,10 @@ def summarize_with_openai(ocr_text: str) -> dict:
         "Extract ALL valid job roles into an array of objects. "
         "IGNORE recommended or similar jobs at the very bottom, but capture all main roles. "
         "You MUST NOT hallucinate. If a field is not explicitly mentioned, set it to an empty string \"\". "
-        "Dates should be normalized to YYYY-MM-DD when possible."
+        "Dates should be normalized to YYYY-MM-DD when possible.\n"
+        "IMPORTANT: For '주요업무' (main_tasks), '자격요건' (requirements), and '우대사항' (preferred_qualifications), "
+        "DO NOT use a single long paragraph. Instead, summarize them into concise bullet points using dashes (e.g., '- First point\\n- Second point'). "
+        "Keep the summary brief, readable, and well-structured."
     )
 
     user_prompt = (
@@ -338,47 +341,44 @@ def main() -> None:
     if len(sys.argv) > 1:
         url = sys.argv[1].strip()
     else:
-        url = input("채용 공고 URL을 입력하세요: ").strip()
+        print("URL 인자가 없습니다.", file=sys.stderr)
+        sys.exit(1)
         
     if not url:
-        print("URL이 비어 있습니다.")
+        print("URL이 비어 있습니다.", file=sys.stderr)
         sys.exit(1)
 
     try:
-        print("웹페이지 전체 스크린샷 캡처 중...")
+        print("웹페이지 전체 스크린샷 캡처 중...", file=sys.stderr)
         screenshot_bytes, top_text = get_full_page_screenshot(url)
         if not screenshot_bytes:
-            print("스크린샷을 생성하지 못했습니다.")
+            print("스크린샷을 생성하지 못했습니다.", file=sys.stderr)
             sys.exit(1)
             
-        print("스크린샷 완료, 로컬에 'debug_screenshot.png' 파일로 저장합니다...")
-        with open("debug_screenshot.png", "wb") as f:
-            f.write(screenshot_bytes)
+        print("스크린샷 완료! (메모리에서 바로 처리합니다...)", file=sys.stderr)
             
-        print("OCR로 텍스트 추출 중 (Google Vision API 사용)...")
+        print("OCR로 텍스트 추출 중 (Google Vision API 사용)...", file=sys.stderr)
 
         ocr_text = extract_text_with_google_vision(screenshot_bytes)
         if not ocr_text.strip():
-            print("이미지에서 텍스트를 추출하지 못했습니다.")
+            print("이미지에서 텍스트를 추출하지 못했습니다.", file=sys.stderr)
             sys.exit(1)
 
-        print(f"OCR 완료 (추출된 텍스트 수: {len(ocr_text)}자). 추출된 원본 텍스트:")
-        print("--------------------------------------------------")
-        print(ocr_text)
-        print("--------------------------------------------------")
-        print("공고 요약 중...")
+        print(f"OCR 완료 (추출된 텍스트 수: {len(ocr_text)}자).", file=sys.stderr)
+        print("공고 요약 중...", file=sys.stderr)
         
         combined_text = f"=== 상단 메타데이터(근무지, 마감일 등) ===\n{top_text}\n\n=== 상세 본문 영역(OCR) ===\n{ocr_text}"
         structured = summarize_with_openai(combined_text)
 
-        print("\n=== 추출된 채용 정보(JSON) ===")
-        print(json.dumps(structured, ensure_ascii=False, indent=2))
-        
-        # JSON 파일 저장 대신 클라우드 DB로 전송 (요청사항 반영) - 임시 주석 처리
-        # save_to_cloud_db(url, ocr_text, structured)
+        # JSON 형식으로 결과만 표준출력(stdout)으로 전송 (Next.js 가 파싱하기 위함)
+        ans = {
+            "raw_text": ocr_text,
+            "structured": structured
+        }
+        print(json.dumps(ans, ensure_ascii=False))
         
     except Exception as e:
-        print(f"오류 발생: {e}")
+        print(f"오류 발생: {e}", file=sys.stderr)
         sys.exit(1)
 
 if __name__ == "__main__":
