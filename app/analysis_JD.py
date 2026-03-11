@@ -98,9 +98,53 @@ def get_full_page_screenshot(url: str) -> Union[bytes, None]:
         }
         
         document.querySelectorAll('div[style*="list-content"]').forEach(el => el.remove());
+
+        // --- 더보기 가림막 강제 해제 (클릭 없이 CSS 속성만 조작) ---
+        const contentAreas = document.querySelectorAll('div, section, article, p, span, li');
+        contentAreas.forEach(el => {
+            const style = window.getComputedStyle(el);
+            if (style.overflow === 'hidden' || (style.maxHeight !== 'none' && style.maxHeight.includes('px'))) {
+                el.style.setProperty('max-height', 'none', 'important');
+                el.style.setProperty('height', 'auto', 'important');
+                el.style.setProperty('overflow', 'visible', 'important');
+            }
+        });
+
+        // 더보기 버튼 자체는 화면에 노이즈를 주석처리하여 숨김처리
+        const buttons = document.querySelectorAll('button, a, span, div');
+        buttons.forEach(btn => {
+            if (btn.innerText && (btn.innerText.includes('더보기') || btn.innerText.includes('상세정보'))) {
+                btn.style.setProperty('display', 'none', 'important');
+            }
+        });
         """
         driver.execute_script(clear_all_noise_js)
         time.sleep(1)
+
+        # --- 상세정보 더보기 버튼 스마트 클릭 ---
+        print("▶ 가려진 텍스트를 불러오기 위해 '더보기' 버튼 클릭을 시도합니다.", file=sys.stderr)
+        try:
+            smart_click_js = """
+            let clicked = false;
+            const buttons = document.querySelectorAll('button');
+            for (let btn of buttons) {
+                const text = btn.innerText || "";
+                if (text.includes('상세 정보 더 보기') || text.includes('상세정보 더보기')) {
+                    btn.click();
+                    clicked = true;
+                    break;
+                }
+            }
+            return clicked;
+            """
+            was_clicked = driver.execute_script(smart_click_js)
+            if was_clicked:
+                print("   ✅ '상세정보 더보기' 버튼 클릭 성공! 텍스트 다운로드 대기중...", file=sys.stderr)
+                time.sleep(3)  # 버튼 클릭 후 텍스트/이미지 로딩 대기
+            else:
+                print("   ℹ️ '상세정보 더보기' 버튼이 화면에 없습니다. 생략합니다.", file=sys.stderr)
+        except Exception as e:
+            print(f"   ⚠️ 더보기 버튼 클릭 중 에러 발생: {e}", file=sys.stderr)
 
         # iframe 타겟팅
         if "saramin" in domain:

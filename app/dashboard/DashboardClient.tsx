@@ -14,6 +14,7 @@ import {
     UserCircle,
     Search,
     ArrowRight,
+    ArrowLeft,
     UploadCloud,
     Link as LinkIcon,
     Folder,
@@ -56,6 +57,7 @@ export default function DashboardClient() {
     const [jdUrl, setJdUrl] = useState('');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [analysisResult, setAnalysisResult] = useState<any>(null);
+    const [analysisResultId, setAnalysisResultId] = useState<number | null>(null);
     const [selectedJobForWorkspace, setSelectedJobForWorkspace] = useState<any>(null);
 
     const handleAnalyze = async () => {
@@ -78,6 +80,8 @@ export default function DashboardClient() {
 
             if (response.ok) {
                 setAnalysisResult(data.result);
+                if (data.id) setAnalysisResultId(data.id);
+                setJdUrl(''); // 1. URL Clear after success
             } else {
                 throw new Error(data.error || '분석 중 오류가 발생했습니다.');
             }
@@ -114,6 +118,8 @@ export default function DashboardClient() {
                     onAnalyze={handleAnalyze}
                     analysisResult={analysisResult}
                     setAnalysisResult={setAnalysisResult}
+                    analysisResultId={analysisResultId}
+                    setAnalysisResultId={setAnalysisResultId}
                     onNavigateToWorkspace={(job) => {
                         setSelectedJobForWorkspace(job);
                         setCurrentView('workspace');
@@ -398,9 +404,12 @@ function WorkspaceView({ selectedJob }: { selectedJob?: any }) {
     const [isGuideOpen, setIsGuideOpen] = useState(true);
 
     // Current question context (In a real app, this would change based on activeTab)
+    const companyName = selectedJob?.회사명 || '회사명';
+    const jobTitle = selectedJob?.모집부문 || selectedJob?.모집직무 || '직무';
+
     const currentQuestion = {
         title: "지원 동기 및 입사 후 포부",
-        description: "삼성전자 DX부문에 지원한 동기와 본인이 이 직무에 적합하다고 생각하는 이유를 구체적으로 서술해 주십시오. (700자 이내)",
+        description: `${companyName} ${jobTitle}에 지원한 동기와 본인이 이 직무에 적합하다고 생각하는 이유를 구체적으로 서술해 주십시오. (700자 이내)`,
         strategies: [
             '삼성전자의 최신 DX 이슈와 본인의 역량을 연결하여 구체적인 기여 방안을 제시하세요.',
             '단순한 관심보다는 직무 관련 프로젝트 경험을 통해 준비된 인재임을 강조해야 합니다.',
@@ -419,7 +428,7 @@ function WorkspaceView({ selectedJob }: { selectedJob?: any }) {
         setIsGenerating(true);
         // Next.js client-side Gemini call simulation
         setTimeout(() => {
-            setContent("삼성전자의 DX부문은 사용자 중심의 경험을 최적화하는 데 있어 업계 표준을 제시하고 있습니다. 저는 A사 데이터 분석 인턴 시절, Python을 활용하여 고객 이탈률을 15% 감소시킨 성과를 거두었습니다...");
+            setContent(`${companyName}의 ${jobTitle}는 사용자 중심의 경험을 최적화하는 데 있어 업계 표준을 제시하고 있습니다. 저는 과거 데이터 분석 프로젝트 시절, 논리적인 문제 해결 능력을 활용하여 유의미한 비즈니스 성과를 거두었습니다. 입사 후에도 이러한 데이터 기반의 의사결정 역량을 바탕으로 혁신적인 가치를 창출하겠습니다...`);
             setIsDraftGenerated(true);
             setIsGenerating(false);
         }, 1500);
@@ -434,7 +443,7 @@ function WorkspaceView({ selectedJob }: { selectedJob?: any }) {
                         <div className="flex items-center gap-2 text-xs font-medium text-slate-400 mb-2">
                             <span>{selectedJob?.회사명 || '지원 기업'}</span>
                             <ChevronRight size={12} />
-                            <span>{selectedJob?.모집부분 || selectedJob?.모집직무 || '지원 직무'}</span>
+                            <span>{selectedJob?.모집부문 || selectedJob?.모집직무 || '지원 직무'}</span>
                             <ChevronRight size={12} />
                             <span className="text-blue-600">자기소개서 작성</span>
                         </div>
@@ -807,7 +816,7 @@ function ExperienceBankView() {
                     <h2 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
                         <Brain className="text-blue-600" size={24} /> AI 분석 완료된 내 경험 (STARI)
                     </h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4 items-start">
                         {experiences.map(exp => (
                             <ExperienceCard
                                 key={exp.id || Math.random().toString()}
@@ -829,6 +838,8 @@ function CompanyAnalysisView({
     onAnalyze,
     analysisResult,
     setAnalysisResult,
+    analysisResultId,
+    setAnalysisResultId,
     onNavigateToWorkspace
 }: {
     jdUrl: string,
@@ -837,6 +848,8 @@ function CompanyAnalysisView({
     onAnalyze: () => void,
     analysisResult: any,
     setAnalysisResult: (result: any) => void,
+    analysisResultId?: number | null,
+    setAnalysisResultId?: (id: number | null) => void,
     onNavigateToWorkspace: (job: any) => void
 }) {
     const [selectedJob, setSelectedJob] = React.useState<any>(null);
@@ -871,9 +884,115 @@ function CompanyAnalysisView({
     };
 
     const handleRestoreHistory = (item: any) => {
-        setJdUrl(item.jdUrl || '');
+        setJdUrl(''); // Prevent the URL from popping back up into the input
         if (item.analysisResult) {
             setAnalysisResult(item.analysisResult);
+            if (setAnalysisResultId && item.id) {
+                setAnalysisResultId(item.id);
+            }
+        }
+    };
+
+    const favoriteJobs = React.useMemo(() => {
+        return history.flatMap(item => {
+            if (Array.isArray(item.analysisResult)) {
+                return item.analysisResult
+                    .map((job: any, index: number) => ({
+                        ...job,
+                        parentJobAnalysisId: item.id,
+                        parentJdUrl: item.jdUrl,
+                        originalIndex: index,
+                        createdAt: item.createdAt,
+                    }))
+                    .filter((job: any) => job.isFavorite);
+            }
+            return [];
+        });
+    }, [history]);
+
+    const handleRestoreFavorite = (job: any) => {
+        const parentHistoryItem = history.find(h => h.id === job.parentJobAnalysisId);
+        if (parentHistoryItem) {
+            handleRestoreHistory(parentHistoryItem);
+            // Wait for state to update, then select the job
+            setTimeout(() => setSelectedJob(job), 100);
+        }
+    };
+
+    const handleRemoveJobFromCurrentResult = async (e: React.MouseEvent, indexToRemove: number) => {
+        e.stopPropagation();
+        if (!confirm('해당 직무를 삭제하시겠습니까?')) return;
+
+        const remainingJobs = analysisResult.filter((_: any, i: number) => i !== indexToRemove);
+        setAnalysisResult(remainingJobs.length > 0 ? remainingJobs : null);
+
+        if (analysisResultId) {
+            // 1. 상태 업데이트 방식 (즉각적인 화면 반영: History 상태 동기화)
+            if (remainingJobs.length > 0) {
+                setHistory(prev => prev.map(item => item.id === analysisResultId ? { ...item, analysisResult: remainingJobs } : item));
+            } else {
+                setHistory(prev => prev.filter(item => item.id !== analysisResultId));
+                setAnalysisResultId(null);
+            }
+
+            try {
+                await fetch('/api/analyze/jd', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: analysisResultId, remainingJobs })
+                });
+            } catch (err) {
+                console.error(err);
+            }
+        }
+    };
+
+    const handleToggleFavorite = async (e: React.MouseEvent, indexToToggle: number) => {
+        e.stopPropagation();
+        
+        const updatedJobs = [...analysisResult];
+        updatedJobs[indexToToggle] = {
+            ...updatedJobs[indexToToggle],
+            isFavorite: !updatedJobs[indexToToggle].isFavorite
+        };
+        
+        setAnalysisResult(updatedJobs);
+
+        if (analysisResultId) {
+            // 1. 상태 업데이트 방식 (즉각적인 화면 반영: History 상태 동기화)
+            setHistory(prev => prev.map(item => item.id === analysisResultId ? { ...item, analysisResult: updatedJobs } : item));
+
+            try {
+                await fetch('/api/analyze/jd', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: analysisResultId, remainingJobs: updatedJobs })
+                });
+            } catch (err) {
+                console.error(err);
+            }
+        }
+    };
+
+    const handleRemoveAllCurrentResult = async () => {
+        if (!confirm('직무를 모두 삭제 하시겠습니까?')) return;
+
+        setAnalysisResult(null);
+
+        if (analysisResultId) {
+            try {
+                await fetch('/api/analyze/jd', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: analysisResultId, remainingJobs: [] })
+                });
+                
+                // 공고가 모두 삭제되었으므로 최근 분석한 공고(history)에서도 제거
+                setHistory(prev => prev.filter(item => item.id !== analysisResultId));
+                setAnalysisResultId(null);
+            } catch (err) {
+                console.error(err);
+            }
         }
     };
 
@@ -925,6 +1044,37 @@ function CompanyAnalysisView({
                 </div>
             </div>
 
+            {/* Favorite Jobs Display */}
+            {!analysisResult && favoriteJobs.length > 0 && (
+                <div className="max-w-4xl mx-auto mt-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                            <Star size={20} className="text-yellow-500 fill-yellow-500" /> 즐겨찾기 한 직무
+                        </h2>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {favoriteJobs.map((job: any, idx: number) => (
+                            <div 
+                                key={`fav-${job.parentJobAnalysisId}-${idx}`}
+                                onClick={() => handleRestoreFavorite(job)}
+                                className="bg-white border border-yellow-200 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-yellow-400 transition-all cursor-pointer flex items-start gap-4"
+                            >
+                                <div className="p-3 bg-yellow-50 text-yellow-600 rounded-xl shrink-0">
+                                    <Star size={20} className="fill-yellow-500" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-bold text-slate-400 mb-1">{job.회사명 || '회사명 정보 없음'} · {formatDate(job.createdAt)}</p>
+                                    <p className="text-base font-bold text-slate-900 truncate">{job.모집직무 || '직무 정보 없음'}</p>
+                                </div>
+                                <div className="text-slate-300">
+                                    <ChevronRight size={20} />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* Analysis History Display */}
             {!analysisResult && history.length > 0 && (
                 <div className="max-w-4xl mx-auto mt-12 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
@@ -945,7 +1095,7 @@ function CompanyAnalysisView({
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <p className="text-xs font-bold text-slate-400 mb-1">{item.companyName || '회사명 정보 없음'} · {formatDate(item.createdAt)}</p>
-                                    <p className="text-base font-bold text-slate-900 truncate">{item.jobTitle || '직무 정보 없음'}</p>
+                                    <p className="text-base font-bold text-slate-900 truncate">{item.companyName || '회사명 정보 없음'} 채용 공고 <span className="text-sm font-medium text-slate-500 ml-1">(직무 {item.analysisResult?.length || 1}개)</span></p>
                                 </div>
                                 <button
                                     onClick={(e) => {
@@ -972,13 +1122,28 @@ function CompanyAnalysisView({
                     animate={{ opacity: 1, y: 0 }}
                     className="mt-12 space-y-6"
                 >
-                    <div className="flex items-center gap-3 border-b border-slate-200 pb-4">
-                        <div className="px-3 py-1 bg-green-100 text-green-700 font-bold rounded-full text-sm">
-                            분석 완료
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+                        <div className="flex items-center gap-3">
+                            <button
+                                onClick={() => setAnalysisResult(null)}
+                                className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors mr-2"
+                                title="목록으로 돌아가기"
+                            >
+                                <ArrowLeft size={20} />
+                            </button>
+                            <div className="px-3 py-1 bg-green-100 text-green-700 font-bold rounded-full text-sm">
+                                분석 완료
+                            </div>
+                            <h2 className="text-xl font-bold text-slate-900">
+                                이 공고에서 <span className="text-blue-600">{analysisResult.length}개</span>의 직무를 발견했어요!
+                            </h2>
                         </div>
-                        <h2 className="text-xl font-bold text-slate-900">
-                            이 공고에서 <span className="text-blue-600">{analysisResult.length}개</span>의 직무를 발견했어요!
-                        </h2>
+                        <button
+                            onClick={handleRemoveAllCurrentResult}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-slate-200 hover:border-red-200"
+                        >
+                            <Trash2 size={16} /> 전체 삭제
+                        </button>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -986,10 +1151,10 @@ function CompanyAnalysisView({
                             <div 
                                 key={index} 
                                 onClick={() => setSelectedJob(job)}
-                                className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-xl transition-all hover:-translate-y-1 hover:border-blue-400 group flex flex-col cursor-pointer"
+                                className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-xl transition-all hover:-translate-y-1 hover:border-blue-400 group flex flex-col cursor-pointer relative"
                             >
                                 <div className="flex justify-between items-start mb-4">
-                                    <div>
+                                    <div className="pr-4">
                                         <span className="inline-block px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg mb-2">
                                             {job.회사명 || '회사명 미상'}
                                         </span>
@@ -1000,8 +1165,21 @@ function CompanyAnalysisView({
                                             {job.모집부문 || '부문 미상'}
                                         </span>
                                     </div>
-                                    <div className="bg-slate-50 p-2 rounded-lg text-slate-500 group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                                        <Briefcase size={20} />
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={(e) => handleRemoveJobFromCurrentResult(e, index)}
+                                            className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors opacity-0 group-hover:opacity-100"
+                                            title="삭제"
+                                        >
+                                            <Trash2 size={18} />
+                                        </button>
+                                        <button
+                                            onClick={(e) => handleToggleFavorite(e, index)}
+                                            className={`p-2 rounded-lg transition-colors h-fit ${job.isFavorite ? 'bg-yellow-100 text-yellow-500 hover:bg-yellow-200' : 'bg-slate-50 text-slate-400 hover:bg-yellow-50 hover:text-yellow-500'}`}
+                                            title="즐겨찾기"
+                                        >
+                                            <Star size={20} className={job.isFavorite ? 'fill-yellow-500' : ''} />
+                                        </button>
                                     </div>
                                 </div>
 
@@ -1154,17 +1332,19 @@ function ExperienceCard({ experience, onDelete }: { experience: Experience, onDe
 
     return (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden transition-all hover:shadow-md">
-            <div className="p-6 cursor-pointer" onClick={() => setIsOpen(!isOpen)}>
-                <div className="flex justify-between items-center">
-                    <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2">
-                            {displayTags.map(tag => (
-                                <span key={tag} className="text-[10px] font-bold px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full">{tag}</span>
+            <div className={`p-5 cursor-pointer flex /*items-center*/ ${isOpen ? 'min-h-[130px] h-auto items-start' : 'h-[130px] items-center'}`} onClick={() => setIsOpen(!isOpen)}>
+                <div className="flex justify-between items-center w-full gap-4 h-full">
+                    <div className="flex flex-col gap-2 flex-1 min-w-0 justify-center">
+                        <div className="flex items-center gap-2 flex-nowrap overflow-hidden">
+                            {displayTags.slice(0, 4).map(tag => (
+                                <span key={tag} className="text-[10px] font-bold px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full whitespace-nowrap shrink-0">{tag}</span>
                             ))}
                         </div>
-                        <h3 className="text-lg font-bold text-slate-900">{experience.title}</h3>
+                        <h3 className={`text-base md:text-lg font-bold text-slate-900 ${isOpen ? '' : 'line-clamp-2'}`}>{experience.title}</h3>
                     </div>
-                    <ChevronRight size={20} className={`text-slate-400 transform transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                    <div className="flex h-full items-center">
+                        <ChevronRight size={20} className={`text-slate-400 shrink-0 transform transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                    </div>
                 </div>
             </div>
             {isOpen && (

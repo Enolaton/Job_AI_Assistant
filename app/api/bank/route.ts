@@ -243,8 +243,11 @@ export async function PUT(request: Request) {
             return NextResponse.json({ error: '분석할 서류가 없습니다.' }, { status: 400 });
         }
 
-        const texts = await Promise.all(user.documents.map((doc: any) => extractTextFromFile(doc.fileUrl)));
-        const combinedText = texts.filter(t => t.length > 0).join('\n\n---\n\n');
+        const texts = await Promise.all(user.documents.map(async (doc: any, index: number) => {
+            const text = await extractTextFromFile(doc.fileUrl);
+            return text ? `--- [문서 ${index + 1}: ${doc.fileName}] ---\n${text}` : '';
+        }));
+        const combinedText = texts.filter(t => t.length > 0).join('\n\n');
 
         if (!combinedText.trim()) return NextResponse.json({ error: '텍스트 추출 실패' }, { status: 400 });
 
@@ -253,7 +256,7 @@ export async function PUT(request: Request) {
             messages: [
                 {
                     role: "system",
-                    content: `너는 취업 컨설팅 전문가이자 커리어 분석가이다. 사용자가 제공한 텍스트(이력서, 자기소개서 등)에서 주요 '경험'들을 추출하여 STARI 기법으로 요약해라.
+                    content: `너는 취업 컨설팅 전문가이자 커리어 분석가이다. 사용자가 제공한 텍스트(이력서, 자기소개서, 포트폴리오 등)에서 주요 '경험'들을 추출하여 STARI 기법으로 요약해라.
 
 [STARI 기법 지침]
 - Title: 경험의 핵심을 보여주는 매력적인 소제목 (예: '데이터 분석을 통한 고객 이탈률 15% 감소')
@@ -269,6 +272,7 @@ export async function PUT(request: Request) {
 2. 문장은 공손하면서도 전문적인 어조(평어체 권장)로 작성할 것.
 3. 불필요한 사족 없이 정확히 지정된 JSON 구조로만 응답할 것.
 4. 추출할 경험이 여러 개인 경우 리스트에 담을 것.
+5. 여러 개의 문서가 함께 제공될 수 있으므로, 서로 다른 문서의 내용이나 관련 없는 경험이 하나로 섞이지 않도록 주의할 것. 각 경험은 개별적이고 독립적으로 추출할 것.
 
 JSON 구조:
 {

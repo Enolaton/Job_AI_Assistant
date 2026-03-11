@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
 
         if (existingAnalysis && existingAnalysis.analysisResult) {
             console.log(`💡 [CACHE HIT] DB에서 기존 분석 결과를 가져왔습니다: ${url}`);
-            return NextResponse.json({ result: existingAnalysis.analysisResult });
+            return NextResponse.json({ result: existingAnalysis.analysisResult, id: existingAnalysis.id });
         }
 
         // --- 2. DB에 없다면 파이썬 스크립트 실행 ---
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
                     const companyName = structured[0]?.["회사명"] || "알수없음";
                     const jobTitle = structured[0]?.["모집직무"] || "직무 미상";
 
-                    await prisma.jobAnalysis.create({
+                    const newAnalysis = await prisma.jobAnalysis.create({
                         data: {
                             userId: user.id,
                             companyName,
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
 
                     console.log(`💡 [DB SAVED] 새로운 분석 결과를 DB에 저장했습니다: ${url}`);
 
-                    resolve(NextResponse.json({ result: structured }));
+                    resolve(NextResponse.json({ result: structured, id: newAnalysis.id }));
                 } catch (parseError) {
                     console.error('Failed to parse Python output. Raw output:', stdoutData);
                     resolve(NextResponse.json({ error: 'Failed to parse result', output: stdoutData }, { status: 500 }));
@@ -168,6 +168,47 @@ export async function DELETE(req: NextRequest) {
         return NextResponse.json({ success: true });
     } catch (error) {
         console.error('Delete API Error:', error);
+        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    }
+}
+
+export async function PATCH(req: NextRequest) {
+    try {
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.email) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { email: session.user.email },
+        });
+
+        if (!user) {
+            return NextResponse.json({ error: 'User not found' }, { status: 404 });
+        }
+
+        const { id, remainingJobs } = await req.json();
+
+        if (!id || !Array.isArray(remainingJobs)) {
+            return NextResponse.json({ error: 'Invalid data' }, { status: 400 });
+        }
+
+        if (remainingJobs.length === 0) {
+            // Delete entire record if no jobs left
+            await prisma.jobAnalysis.deleteMany({
+                where: { id: id, userId: user.id }
+            });
+        } else {
+            // Update the array
+            await prisma.jobAnalysis.updateMany({
+                where: { id: id, userId: user.id },
+                data: { analysisResult: remainingJobs }
+            });
+        }
+
+        return NextResponse.json({ success: true });
+    } catch (error) {
+        console.error('Patch API Error:', error);
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
 }
