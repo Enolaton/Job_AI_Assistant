@@ -1183,14 +1183,14 @@ function CompanyAnalysisView({
                                     </div>
                                 </div>
 
-                                <div className="flex-1 space-y-4 mb-6">
-                                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 flex items-center gap-1"><CheckCircle2 size={12}/> 주요 업무</h4>
-                                        <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed font-medium">{job.주요업무}</p>
-                                    </div>
-                                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 flex items-center gap-1"><Star size={12}/> 자격 요건</h4>
-                                        <p className="text-xs text-slate-700 whitespace-pre-wrap leading-relaxed font-medium">{job.자격요건}</p>
+                                <div className="flex-1 mb-6">
+                                    <div className="bg-blue-50/30 p-4 rounded-xl border border-blue-100/50">
+                                        <h4 className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-2 flex items-center gap-1">
+                                            <Brain size={12}/> AI 요약
+                                        </h4>
+                                        <p className="text-xs text-slate-700 leading-relaxed font-medium line-clamp-3">
+                                            {job.공고요약 || '공고 요약 정보를 추출 중입니다...'}
+                                        </p>
                                     </div>
                                 </div>
 

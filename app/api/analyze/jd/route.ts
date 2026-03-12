@@ -35,8 +35,15 @@ export async function POST(req: NextRequest) {
         });
 
         if (existingAnalysis && existingAnalysis.analysisResult) {
-            console.log(`💡 [CACHE HIT] DB에서 기존 분석 결과를 가져왔습니다: ${url}`);
-            return NextResponse.json({ result: existingAnalysis.analysisResult, id: existingAnalysis.id });
+            const results = existingAnalysis.analysisResult as any[];
+            // 새로운 필드인 '공고요약'이 있는지 확인 (하나라도 없으면 새로 분석)
+            const hasBriefSummary = results.length > 0 && results.every(job => job["공고요약"]);
+            
+            if (hasBriefSummary) {
+                console.log(`💡 [CACHE HIT] DB에서 최신 분석 결과를 가져왔습니다: ${url}`);
+                return NextResponse.json({ result: existingAnalysis.analysisResult, id: existingAnalysis.id });
+            }
+            console.log(`ℹ️ [CACHE BYPASS] 기존 결과에 '공고요약'이 없어 새로 분석을 진행합니다.`);
         }
 
         // --- 2. DB에 없다면 파이썬 스크립트 실행 ---
