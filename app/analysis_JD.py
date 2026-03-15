@@ -130,11 +130,11 @@ def get_full_page_screenshot(url: str) -> Union[bytes, None]:
         # screenshot_bytes = base64.b64decode(result['data'])
         screenshot_bytes = base64.b64decode(result['data'])
         
-        return screenshot_bytes, top_text
+        return screenshot_bytes, top_text, driver.current_url
 
     except Exception as e:
         print(f"❌ 캡처 중 오류: {e}", file=sys.stderr)
-        return None, ""
+        return None, "", url
     finally:
         driver.quit()
 
@@ -220,16 +220,20 @@ def main() -> None:
     url = sys.argv[1].strip()
     
     try:
-        screenshot_bytes, top_text = get_full_page_screenshot(url)
-        if not screenshot_bytes: sys.exit(1)
+        # 단일 URL 분석으로 단순화 (시퀀스 1 시도 안 함)
+        screenshot_bytes, top_text, final_url = get_full_page_screenshot(url)
+        if not screenshot_bytes:
+            sys.exit(1)
         
         ocr_text = extract_text_with_google_vision(screenshot_bytes)
-        if not ocr_text.strip(): sys.exit(1)
+        if not ocr_text.strip():
+            sys.exit(1)
         
-        combined_text = f"META:\n{top_text}\n\nBODY:\n{ocr_text}"
+        combined_text = f"URL: {final_url}\nMETA:\n{top_text}\n\nBODY:\n{ocr_text}"
         structured = summarize_with_openai(combined_text)
         
         print(json.dumps({"raw_text": ocr_text, "structured": structured}, ensure_ascii=False))
+
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
