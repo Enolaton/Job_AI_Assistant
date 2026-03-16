@@ -855,21 +855,23 @@ function CompanyAnalysisView({
     const [selectedJob, setSelectedJob] = React.useState<any>(null);
     const [history, setHistory] = React.useState<any[]>([]);
 
-    React.useEffect(() => {
-        const fetchHistory = async () => {
-            try {
-                const res = await fetch('/api/analyze/jd');
-                const data = await res.json();
-                if (data.history) setHistory(data.history);
-            } catch (error) {
-                console.error('Failed to fetch history', error);
-            }
-        };
-        fetchHistory();
+    const fetchHistory = React.useCallback(async () => {
+        try {
+            const res = await fetch('/api/analyze/jd');
+            const data = await res.json();
+            if (data.history) setHistory(data.history);
+        } catch (error) {
+            console.error('Failed to fetch history', error);
+        }
     }, []);
 
-    const handleDeleteHistory = async (id: number) => {
-        if (!confirm('정말 삭제하시겠습니까?')) return;
+    React.useEffect(() => {
+        fetchHistory();
+    }, [fetchHistory]);
+
+    const handleDeleteHistory = async (id: number, companyName: string) => {
+        const cleanedName = cleanCompanyName(companyName);
+        if (!confirm(`[${cleanedName}] 채용 공고를 삭제하시겠습니까?`)) return;
         try {
             const res = await fetch(`/api/analyze/jd?id=${id}`, { method: 'DELETE' });
             if (res.ok) {
@@ -1125,7 +1127,7 @@ function CompanyAnalysisView({
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        handleDeleteHistory(item.id);
+                                        handleDeleteHistory(item.id, item.companyName);
                                     }}
                                     className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors shrink-0"
                                 >
@@ -1150,7 +1152,10 @@ function CompanyAnalysisView({
                     <div className="flex items-center justify-between border-b border-slate-200 pb-4">
                         <div className="flex items-center gap-3">
                             <button
-                                onClick={() => setAnalysisResult(null)}
+                                onClick={() => {
+                                    setAnalysisResult(null);
+                                    fetchHistory();
+                                }}
                                 className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors mr-2"
                                 title="목록으로 돌아가기"
                             >
