@@ -41,7 +41,9 @@ import {
     Loader2,
     LogOut,
     Mic,
-    Trash2
+    Trash2,
+    Newspaper,
+    ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useSession, signOut } from 'next-auth/react';
@@ -49,6 +51,32 @@ import type { ViewType, Experience } from './dashboard.types';
 
 // --- Mock Data ---
 const MOCK_EXPERIENCES: Experience[] = [];
+
+// --- Helper Functions ---
+const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return `${date.getMonth() + 1}월 ${date.getDate()}일`;
+};
+
+const getSiteName = (url: string) => {
+    if (!url) return '공고 출처';
+    if (url.includes('saramin')) return '사람인';
+    if (url.includes('jobkorea')) return '잡코리아';
+    if (url.includes('wanted')) return '원티드';
+    if (url.includes('rocketpunch')) return '로켓펀치';
+    if (url.includes('jumpit')) return '점핏';
+    if (url.includes('blindhire')) return '블라인드하이어';
+    try {
+        return new URL(url).hostname.replace('www.', '');
+    } catch {
+        return '웹사이트';
+    }
+};
+
+const cleanCompanyName = (name: string) => {
+    if (!name) return '회사명 정보 없음';
+    return name.replace(/\(.*\)/g, '').replace(/\s+$/, '');
+};
 
 export default function DashboardClient() {
     const { data: session } = useSession();
@@ -108,7 +136,7 @@ export default function DashboardClient() {
                     analysisResult={analysisResult}
                 />
             );
-            case 'workspace': return <WorkspaceView selectedJob={selectedJobForWorkspace} />;
+            case 'workspace': return <WorkspaceView selectedJob={selectedJobForWorkspace} onSelectJob={setSelectedJobForWorkspace} />;
             case 'experience': return <ExperienceBankView />;
             case 'analysis': return (
                 <CompanyAnalysisView
@@ -395,13 +423,39 @@ function ActivityItem({ icon, title, subtitle, status, statusColor }: { icon: Re
 }
 
 
-function WorkspaceView({ selectedJob }: { selectedJob?: any }) {
+function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSelectJob: (job: any) => void }) {
     const [activeTab, setActiveTab] = useState(0);
     const [content, setContent] = useState('');
     const [showEvaluation, setShowEvaluation] = useState(false);
     const [isDraftGenerated, setIsDraftGenerated] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
     const [isGuideOpen, setIsGuideOpen] = useState(true);
+    const [isCompanyReportOpen, setIsCompanyReportOpen] = useState(false);
+    const [companyReportData, setCompanyReportData] = useState<any>(null);
+    const [isLoadingReport, setIsLoadingReport] = useState(false);
+
+    // State for job selection
+    const [history, setHistory] = useState<any[]>([]);
+    const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+    const [selectedPosting, setSelectedPosting] = useState<any>(null);
+
+    React.useEffect(() => {
+        if (!selectedJob) {
+            const fetchHistory = async () => {
+                setIsLoadingHistory(true);
+                try {
+                    const res = await fetch('/api/analyze/jd');
+                    const data = await res.json();
+                    if (data.history) setHistory(data.history);
+                } catch (error) {
+                    console.error('Failed to fetch history', error);
+                } finally {
+                    setIsLoadingHistory(false);
+                }
+            };
+            fetchHistory();
+        }
+    }, [selectedJob]);
 
     // Current question context (In a real app, this would change based on activeTab)
     const companyName = selectedJob?.회사명 || '회사명';
@@ -434,6 +488,134 @@ function WorkspaceView({ selectedJob }: { selectedJob?: any }) {
         }, 1500);
     };
 
+    const handleOpenCompanyReport = async () => {
+        setIsCompanyReportOpen(true);
+        if (companyReportData) return;
+        setIsLoadingReport(true);
+        try {
+            const res = await fetch('/api/analyze/company', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ companyName, jobTitle })
+            });
+            const data = await res.json();
+            setCompanyReportData(data);
+        } catch (error) {
+            console.error('Company report error:', error);
+            toast.error('기업 분석 중 오류가 발생했습니다.');
+        } finally {
+            setIsLoadingReport(false);
+        }
+    };
+
+    if (!selectedJob) {
+        return (
+            <div className="h-full overflow-y-auto custom-scrollbar px-12 py-10 max-w-5xl mx-auto">
+                <div className="text-center mb-10">
+                    <div className="w-16 h-16 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                        <Edit3 size={32} />
+                    </div>
+                    <h1 className="text-3xl font-black text-slate-900 mb-2">자기소개서 작성 공고 선택</h1>
+                    <p className="text-slate-500">작성하실 자기소개서의 공고와 직무를 선택해주세요.</p>
+                </div>
+
+                {!selectedPosting ? (
+                    <div className="space-y-6">
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                                <Database size={20} className="text-blue-500" /> 최근 분석한 공고 리스트
+                            </h2>
+                        </div>
+                        {isLoadingHistory ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {[1, 2, 3, 4].map(i => (
+                                    <div key={i} className="h-24 bg-slate-50 animate-pulse rounded-2xl border border-slate-100"></div>
+                                ))}
+                            </div>
+                        ) : history.length > 0 ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {history.map((item) => (
+                                    <div
+                                        key={item.id}
+                                        onClick={() => setSelectedPosting(item)}
+                                        className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md hover:border-blue-400 transition-all cursor-pointer group"
+                                    >
+                                        <div className="flex items-center justify-between mb-3">
+                                            <span className="px-2 py-1 bg-slate-100 text-slate-500 rounded text-[10px] font-bold uppercase tracking-wider">
+                                                {getSiteName(item.jdUrl)}
+                                            </span>
+                                            <span className="text-[10px] text-slate-400 font-medium">{formatDate(item.createdAt)}</span>
+                                        </div>
+                                        <p className="text-lg font-bold text-slate-900 truncate group-hover:text-blue-600 transition-colors">
+                                            {cleanCompanyName(item.companyName)}
+                                        </p>
+                                        <div className="flex items-center justify-between mt-3 text-sm">
+                                            <span className="text-slate-500 font-medium">분석된 직무 {item.analysisResult?.length || 0}개</span>
+                                            <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
+                                                <ChevronRight size={18} />
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-center py-20 bg-slate-50 rounded-3xl border border-dashed border-slate-200">
+                                <p className="text-slate-400 font-medium mb-4">분석한 공고가 없습니다.</p>
+                                <button
+                                    onClick={() => (window as any).setCurrentView('analysis')}
+                                    className="px-6 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20"
+                                >
+                                    공고 분석하러 가기
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
+                        <button
+                            onClick={() => setSelectedPosting(null)}
+                            className="flex items-center gap-2 text-slate-500 hover:text-slate-800 text-sm font-bold transition-colors mb-4"
+                        >
+                            <ArrowLeft size={16} /> 뒤로가기
+                        </button>
+                        <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                            <Target size={20} className="text-purple-500" /> [{cleanCompanyName(selectedPosting.companyName)}] 의 어떤 직무로 작성할까요?
+                        </h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {selectedPosting.analysisResult.map((job: any, idx: number) => (
+                                <div
+                                    key={idx}
+                                    onClick={() => onSelectJob(job)}
+                                    className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-lg hover:border-purple-400 transition-all cursor-pointer group flex flex-col justify-between h-full"
+                                >
+                                    <div>
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div className="p-2.5 bg-purple-50 text-purple-600 rounded-xl group-hover:bg-purple-600 group-hover:text-white transition-all">
+                                                <Briefcase size={20} />
+                                            </div>
+                                            <div className="text-blue-500 opacity-0 group-hover:opacity-100 transition-all">
+                                                <ArrowRight size={20} />
+                                            </div>
+                                        </div>
+                                        <h3 className="text-xl font-black text-slate-900 mb-2 leading-tight">{job.모집부문 || job.모집직무}</h3>
+                                        <div className="flex flex-wrap gap-2 mt-2">
+                                            {job.핵심역량?.slice(0, 3).map((skill: string, sIdx: number) => (
+                                                <span key={sIdx} className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px] font-bold">#{skill}</span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="mt-6 pt-4 border-t border-slate-50 flex items-center gap-2 text-xs font-bold text-slate-400 group-hover:text-purple-600 transition-colors">
+                                        선택하여 자기소개서 쓰기 <ChevronRight size={14} />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
     return (
         <div className="flex h-full overflow-hidden bg-white">
             <div className="flex-1 flex flex-col min-w-0 border-r border-slate-200">
@@ -441,13 +623,23 @@ function WorkspaceView({ selectedJob }: { selectedJob?: any }) {
                 <div className="px-8 pt-6 pb-2">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 text-xs font-medium text-slate-400 mb-2">
+                            <button 
+                                onClick={() => onSelectJob(null)}
+                                className="flex items-center gap-1 px-1.5 py-1 hover:bg-slate-100 rounded-md text-slate-500 hover:text-slate-900 transition-all mr-1"
+                                title="공고 선택으로 돌아가기"
+                            >
+                                <ArrowLeft size={14} />
+                            </button>
                             <span>{selectedJob?.회사명 || '지원 기업'}</span>
                             <ChevronRight size={12} />
                             <span>{selectedJob?.모집부문 || selectedJob?.모집직무 || '지원 직무'}</span>
                             <ChevronRight size={12} />
                             <span className="text-blue-600">자기소개서 작성</span>
                         </div>
-                        <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors">
+                        <button
+                            onClick={handleOpenCompanyReport}
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                        >
                             <BarChart3 size={16} /> 기업 분석 리포트
                         </button>
                     </div>
@@ -630,6 +822,137 @@ function WorkspaceView({ selectedJob }: { selectedJob?: any }) {
                     </div>
                 </div>
             </motion.div>
+
+            {/* 기업 분석 리포트 팝업 */}
+            <AnimatePresence>
+                {isCompanyReportOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/50 backdrop-blur-sm">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                            className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden"
+                        >
+                            {/* 헤더 */}
+                            <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                                <div>
+                                    <span className="inline-block px-3 py-1 bg-blue-100 text-blue-700 text-xs font-black tracking-wider rounded-lg mb-2">
+                                        {companyName}
+                                    </span>
+                                    <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
+                                        <BarChart3 size={22} className="text-blue-600" /> 기업 분석 리포트
+                                    </h2>
+                                </div>
+                                <button
+                                    onClick={() => setIsCompanyReportOpen(false)}
+                                    className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-full transition-colors"
+                                >
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+                                </button>
+                            </div>
+
+                            {/* 콘텐츠 */}
+                            <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+                                {isLoadingReport ? (
+                                    <div className="flex flex-col items-center justify-center py-20 gap-4">
+                                        <Loader2 size={36} className="animate-spin text-blue-600" />
+                                        <p className="text-slate-500 font-medium">'{companyName}'의 인재상과 최신 뉴스를 수집 중입니다...</p>
+                                        <p className="text-xs text-slate-400">약 10~20초 소요될 수 있습니다</p>
+                                    </div>
+                                ) : companyReportData ? (
+                                    <>
+                                        {/* 인재상 섹션 */}
+                                        {companyReportData.analysis?.인재상?.length > 0 && (
+                                            <div className="bg-green-50/50 p-5 rounded-2xl border border-green-100">
+                                                <h4 className="text-sm font-black text-green-800 flex items-center gap-2 mb-4">
+                                                    <Target size={18} className="text-green-600" /> 인재상 (Ideal Candidate)
+                                                </h4>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                    {companyReportData.analysis.인재상.map((item: any, idx: number) => (
+                                                        <div key={idx} className="bg-white p-4 rounded-xl border border-green-100 shadow-sm">
+                                                            <div className="font-bold text-sm text-slate-900 mb-1.5 flex items-center gap-1.5">
+                                                                <span className="w-5 h-5 bg-green-100 text-green-700 text-[10px] font-black rounded-full flex items-center justify-center">{idx + 1}</span>
+                                                                {item.키워드}
+                                                            </div>
+                                                            <p className="text-xs text-slate-600 leading-relaxed">{item.내용}</p>
+                                                            {item.출처 && (
+                                                                <a href={item.출처} target="_blank" rel="noreferrer" className="text-[10px] text-blue-500 hover:underline mt-2 flex items-center gap-1">
+                                                                    <ExternalLink size={10} /> 출처
+                                                                </a>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* 조직문화 섹션 */}
+                                        {companyReportData.analysis?.조직문화?.length > 0 && (
+                                            <div className="bg-blue-50/50 p-5 rounded-2xl border border-blue-100">
+                                                <h4 className="text-sm font-black text-blue-800 flex items-center gap-2 mb-4">
+                                                    <Users size={18} className="text-blue-600" /> 조직문화 (Culture)
+                                                </h4>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                    {companyReportData.analysis.조직문화.map((item: any, idx: number) => (
+                                                        <div key={idx} className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm">
+                                                            <div className="font-bold text-sm text-slate-900 mb-1.5 flex items-center gap-1.5">
+                                                                <span className="w-5 h-5 bg-blue-100 text-blue-700 text-[10px] font-black rounded-full flex items-center justify-center">{idx + 1}</span>
+                                                                {item.키워드}
+                                                            </div>
+                                                            <p className="text-xs text-slate-600 leading-relaxed">{item.내용}</p>
+                                                            {item.출처 && (
+                                                                <a href={item.출처} target="_blank" rel="noreferrer" className="text-[10px] text-blue-500 hover:underline mt-2 flex items-center gap-1">
+                                                                    <ExternalLink size={10} /> 출처
+                                                                </a>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* 관련 뉴스 섹션 */}
+                                        {Array.isArray(companyReportData.news) && companyReportData.news.length > 0 && (
+                                            <div>
+                                                <h4 className="text-sm font-black text-slate-900 flex items-center gap-2 mb-4">
+                                                    <Newspaper size={18} className="text-slate-600" /> 관련 최신 뉴스
+                                                </h4>
+                                                <div className="space-y-3">
+                                                    {companyReportData.news.map((news: any, idx: number) => (
+                                                        <a
+                                                            key={idx}
+                                                            href={news.url}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="flex items-start justify-between gap-3 p-4 bg-white border border-slate-100 rounded-xl hover:border-blue-400 hover:shadow-sm transition-all group"
+                                                        >
+                                                            <div className="flex-1 min-w-0">
+                                                                <p className="text-sm font-bold text-slate-800 group-hover:text-blue-600 line-clamp-2">{news.title}</p>
+                                                                <p className="text-xs text-slate-400 mt-1">{news.pub_date || '일자 미상'}</p>
+                                                                {news.description && (
+                                                                    <p className="text-xs text-slate-500 mt-1.5 line-clamp-2 leading-relaxed">{news.description}</p>
+                                                                )}
+                                                            </div>
+                                                            <ExternalLink size={14} className="text-slate-300 group-hover:text-blue-400 shrink-0 mt-1" />
+                                                        </a>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* 분석 실패 시 */}
+                                        {companyReportData.analysis?.error && (
+                                            <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+                                                ⚠️ 기업 분석 중 오류: {companyReportData.analysis.error}
+                                            </div>
+                                        )}
+                                    </>
+                                ) : null}
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
         </div>
     );
 }
@@ -855,19 +1178,18 @@ function CompanyAnalysisView({
     const [selectedJob, setSelectedJob] = React.useState<any>(null);
     const [history, setHistory] = React.useState<any[]>([]);
 
-    const fetchHistory = React.useCallback(async () => {
-        try {
-            const res = await fetch('/api/analyze/jd');
-            const data = await res.json();
-            if (data.history) setHistory(data.history);
-        } catch (error) {
-            console.error('Failed to fetch history', error);
-        }
-    }, []);
-
     React.useEffect(() => {
+        const fetchHistory = async () => {
+            try {
+                const res = await fetch('/api/analyze/jd');
+                const data = await res.json();
+                if (data.history) setHistory(data.history);
+            } catch (error) {
+                console.error('Failed to fetch history', error);
+            }
+        };
         fetchHistory();
-    }, [fetchHistory]);
+    }, []);
 
     const handleDeleteHistory = async (id: number, companyName: string) => {
         const cleanedName = cleanCompanyName(companyName);
@@ -951,13 +1273,13 @@ function CompanyAnalysisView({
 
     const handleToggleFavorite = async (e: React.MouseEvent, indexToToggle: number) => {
         e.stopPropagation();
-        
+
         const updatedJobs = [...analysisResult];
         updatedJobs[indexToToggle] = {
             ...updatedJobs[indexToToggle],
             isFavorite: !updatedJobs[indexToToggle].isFavorite
         };
-        
+
         setAnalysisResult(updatedJobs);
 
         if (analysisResultId) {
@@ -988,7 +1310,7 @@ function CompanyAnalysisView({
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ id: analysisResultId, remainingJobs: [] })
                 });
-                
+
                 // 공고가 모두 삭제되었으므로 최근 분석한 공고(history)에서도 제거
                 setHistory(prev => prev.filter(item => item.id !== analysisResultId));
                 setAnalysisResultId(null);
@@ -998,34 +1320,6 @@ function CompanyAnalysisView({
         }
     };
 
-    // Helper function to format date
-    const formatDate = (dateString: string) => {
-        const date = new Date(dateString);
-        return `${date.getMonth() + 1}월 ${date.getDate()}일`;
-    };
-
-    // Helper function to get site name from URL
-    const getSiteName = (url: string) => {
-        if (!url) return '공고 출처';
-        if (url.includes('saramin')) return '사람인';
-        if (url.includes('jobkorea')) return '잡코리아';
-        if (url.includes('wanted')) return '원티드';
-        if (url.includes('rocketpunch')) return '로켓펀치';
-        if (url.includes('jumpit')) return '점핏';
-        if (url.includes('blindhire')) return '블라인드하이어';
-        try {
-            return new URL(url).hostname.replace('www.', '');
-        } catch {
-            return '웹사이트';
-        }
-    };
-
-    // Helper function to clean company name (remove parentheses and extra info)
-    const cleanCompanyName = (name: string) => {
-        if (!name) return '회사명 정보 없음';
-        // Remove content inside parentheses and the parentheses themselves
-        return name.replace(/\(.*\)/g, '').replace(/\s+$/, '');
-    };
 
     return (
         <div className="h-full overflow-y-auto custom-scrollbar px-12 py-10 max-w-[1440px] mx-auto space-y-8 relative">
@@ -1079,7 +1373,7 @@ function CompanyAnalysisView({
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                         {favoriteJobs.map((job: any, idx: number) => (
-                            <div 
+                            <div
                                 key={`fav-${job.parentJobAnalysisId}-${idx}`}
                                 onClick={() => handleRestoreFavorite(job)}
                                 className="bg-white border border-yellow-200 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-yellow-400 transition-all cursor-pointer flex items-start gap-4"
@@ -1110,7 +1404,7 @@ function CompanyAnalysisView({
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                         {history.map((item) => (
-                            <div 
+                            <div
                                 key={item.id}
                                 onClick={() => handleRestoreHistory(item)}
                                 className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-blue-400 transition-all cursor-pointer flex items-start gap-4"
@@ -1118,7 +1412,7 @@ function CompanyAnalysisView({
                                 <div className="flex-1 min-w-0">
                                     <p className="text-xs font-bold text-slate-400 mb-1">{getSiteName(item.jdUrl)} · {formatDate(item.createdAt)}</p>
                                     <p className="text-base font-bold text-slate-900 truncate">
-                                        {cleanCompanyName(item.companyName)} 채용 공고 
+                                        {cleanCompanyName(item.companyName)} 채용 공고
                                         <span className="text-sm font-medium text-slate-500 ml-1">
                                             (직무 {Array.isArray(item.analysisResult) ? item.analysisResult.length : 1}개)
                                         </span>
@@ -1152,10 +1446,7 @@ function CompanyAnalysisView({
                     <div className="flex items-center justify-between border-b border-slate-200 pb-4">
                         <div className="flex items-center gap-3">
                             <button
-                                onClick={() => {
-                                    setAnalysisResult(null);
-                                    fetchHistory();
-                                }}
+                                onClick={() => setAnalysisResult(null)}
                                 className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors mr-2"
                                 title="목록으로 돌아가기"
                             >
@@ -1178,8 +1469,8 @@ function CompanyAnalysisView({
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {analysisResult.map((job: any, index: number) => (
-                            <div 
-                                key={index} 
+                            <div
+                                key={index}
                                 onClick={() => setSelectedJob(job)}
                                 className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-xl transition-all hover:-translate-y-1 hover:border-blue-400 group flex flex-col cursor-pointer relative"
                             >
@@ -1216,7 +1507,7 @@ function CompanyAnalysisView({
                                 <div className="flex-1 mb-6">
                                     <div className="bg-blue-50/30 p-4 rounded-xl border border-blue-100/50">
                                         <h4 className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-2 flex items-center gap-1">
-                                            <Brain size={12}/> AI 요약
+                                            <Brain size={12} /> AI 요약
                                         </h4>
                                         <p className="text-xs text-slate-700 leading-relaxed font-medium line-clamp-3">
                                             {job.공고요약 || '공고 요약 정보를 추출 중입니다...'}
@@ -1237,40 +1528,40 @@ function CompanyAnalysisView({
             <AnimatePresence>
                 {selectedJob && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-                        <motion.div 
+                        <motion.div
                             initial={{ opacity: 0, scale: 0.95, y: 20 }}
                             animate={{ opacity: 1, scale: 1, y: 0 }}
                             exit={{ opacity: 0, scale: 0.95, y: 20 }}
                             className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden relative"
                         >
                             <div className="p-6 border-b border-slate-100 bg-slate-50/50 relative">
-                                <button 
+                                <button
                                     onClick={() => setSelectedJob(null)}
                                     className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-full transition-colors"
                                 >
-                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
                                 </button>
-                                
+
                                 <span className="inline-block px-3 py-1 bg-blue-100 text-blue-700 text-xs font-black tracking-wider rounded-lg mb-3">
                                     {selectedJob.회사명 || '회사명 미상'}
                                 </span>
                                 <h2 className="text-2xl font-black text-slate-900 mb-4">{selectedJob.모집직무 || '직무 미상'}</h2>
-                                
+
                                 <div className="flex flex-wrap gap-2 text-sm">
                                     <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 font-medium whitespace-nowrap">
                                         <Target size={14} className="text-purple-500" /> {selectedJob.모집부문 || '부문 미상'}
                                     </div>
                                     <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 font-medium whitespace-nowrap">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>
                                         {selectedJob.근무지 || '근무지 미상'}
                                     </div>
                                     <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 font-medium whitespace-nowrap">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-green-500"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-green-500"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>
                                         {selectedJob.채용시작일 || '?'} ~ {selectedJob.채용마감일 || '?'}
                                     </div>
                                 </div>
                             </div>
-                            
+
                             <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-white">
                                 <div className="bg-blue-50/50 p-5 rounded-2xl border border-blue-100">
                                     <h4 className="text-sm font-black text-blue-900 flex items-center gap-2 mb-3">
@@ -1278,14 +1569,14 @@ function CompanyAnalysisView({
                                     </h4>
                                     <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedJob.주요업무 || '내용 없음'}</p>
                                 </div>
-                                
+
                                 <div className="bg-purple-50/50 p-5 rounded-2xl border border-purple-100">
                                     <h4 className="text-sm font-black text-purple-900 flex items-center gap-2 mb-3">
                                         <Star size={18} className="text-purple-600" /> 자격 요건 (Requirements)
                                     </h4>
                                     <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedJob.자격요건 || '내용 없음'}</p>
                                 </div>
-                                
+
                                 <div className="bg-orange-50/50 p-5 rounded-2xl border border-orange-100">
                                     <h4 className="text-sm font-black text-orange-900 flex items-center gap-2 mb-3">
                                         <Diamond size={18} className="text-orange-600" /> 우대 사항 (Preferred)
@@ -1293,9 +1584,9 @@ function CompanyAnalysisView({
                                     <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedJob.우대사항 || '내용 없음'}</p>
                                 </div>
                             </div>
-                            
+
                             <div className="p-6 border-t border-slate-100 bg-white shrink-0">
-                                <button 
+                                <button
                                     onClick={() => onNavigateToWorkspace(selectedJob)}
                                     className="w-full py-4 fill-white bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-slate-900/20"
                                 >

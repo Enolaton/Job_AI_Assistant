@@ -11,7 +11,8 @@ from dotenv import load_dotenv
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from openai import OpenAI
+from google import genai
+from google.genai import types
 from google.cloud import vision
 
 load_dotenv()
@@ -25,12 +26,14 @@ SITE_SELECTORS = {
         "section.content"
     ],
     "saramin.co.kr": [
+        "#iframe_content_0",
         ".user_content",
         ".template_area",
         "#template_view",
         ".view_con"
     ],
     "jobkorea.co.kr": [
+        "#details-section",
         ".view_con",
         ".template_area",
         "#gi-template-container"
@@ -63,7 +66,7 @@ def get_full_page_screenshot(url: str) -> Union[bytes, None]:
     
     try:
         driver.get(url)
-        time.sleep(4)
+        time.sleep(5) # 동적 콘텐츠 로딩을 위해 대기 시간 약간 증가
         
         domain = urlparse(url).netloc.replace("www.", "")
         
@@ -73,10 +76,40 @@ def get_full_page_screenshot(url: str) -> Union[bytes, None]:
             top_text = driver.find_element(By.TAG_NAME, "body").text[:1000]
         except Exception: pass
 
-        # 2. 기초 노이즈 제거 (사이트 공통)
+        # 2. 기초 노이즈 제거 (사이트 공통 및 사람인/잡코리아 특화)
         cleanup_js = """
-        const noises = ['header', 'footer', 'nav', 'aside', '.gnb', '.popup', '.dimmed', '.jview_floating', '.recommend_wrap', '#common_header', '#common_footer'];
-        noises.forEach(sel => document.querySelectorAll(sel).forEach(el => el.style.display = 'none'));
+        const noises = [
+            'header', 'footer', 'nav', 'aside', '.gnb', '.popup', '.dimmed', '.jview_floating', 
+            '.recommend_wrap', '#common_header', '#common_footer', '.jv_footer', '.jv_header',
+            '.jv_side', '.jv_cont_related', '.jv_cont_recommend', '.jv_qna', '.jv_review',
+            '#related_jobs', '.tpl_footer', '.job_related', '.social_btns', '.share_btns',
+            '.banner', 'iframe[id*="google"]', '.ad_section', '.jv_job_rec'
+        ];
+        noises.forEach(sel => {
+            document.querySelectorAll(sel).forEach(el => {
+                el.style.display = 'none';
+                el.style.height = '0';
+            });
+        });
+        
+        // 특정 마커(공고 끝) 이후의 모든 형제 요소 숨기기
+        const endMarkers = [
+            '.jv_qna', '.jv_review', '.jv_cont_related', '#related_jobs', 
+            '#jv_howto', '#application-section', '#company-section', '.j_detail_btm'
+        ];
+        endMarkers.forEach(sel => {
+            const el = document.querySelector(sel);
+            if (el) {
+                let sibling = el;
+                while (sibling) {
+                    if (typeof sibling.style !== 'undefined') {
+                        sibling.style.display = 'none';
+                        sibling.style.height = '0';
+                    }
+                    sibling = sibling.nextElementSibling;
+                }
+            }
+        });
         """
         driver.execute_script(cleanup_js)
 
@@ -99,7 +132,14 @@ def get_full_page_screenshot(url: str) -> Union[bytes, None]:
 
         # 4. Iframe (공고 본문) 처리 - 정밀 영역 못 찾았을 때의 폴백
         if not target_el:
-            target_iframe_selectors = ["#iframe_content_0", "iframe[title*='상세']", "iframe[src*='GI_Read']", "iframe[title='채용상세']"]
+            target_iframe_selectors = [
+                "#iframe_content_0", 
+                "iframe[title*='상세']", 
+                "iframe[src*='GI_Read']", 
+                "iframe[title='채용상세']",
+                "iframe#ifr_view",
+                "iframe[src*='saramin']"
+            ]
             for selector in target_iframe_selectors:
                 try:
                     found_iframe = driver.find_element(By.CSS_SELECTOR, selector)
@@ -110,8 +150,13 @@ def get_full_page_screenshot(url: str) -> Union[bytes, None]:
                 except: continue
 
         # 5. 타겟 영역 이미지 로딩 및 크기 측정
-        if target_el:
-            # 5-1. 해당 영역으로 스크롤하여 이미지 로딩 강제
+            # 5-1. 먼저 뷰포트 크기를 고정하여 레이아웃을 안정화 (가로 1280 기준)
+            driver.execute_cdp_cmd("Emulation.setDeviceMetricsOverride", {
+                "width": 1280, "height": 2000, "deviceScaleFactor": 1, "mobile": False
+            })
+            time.sleep(1) # 레이아웃 재배치 대기
+
+            # 5-2. 고정된 가로 너비(1280) 상태에서 정확한 좌표 측정
             rect = driver.execute_script("""
                 const el = arguments[0];
                 el.scrollIntoView();
@@ -120,38 +165,42 @@ def get_full_page_screenshot(url: str) -> Union[bytes, None]:
                     x: rect.left + window.scrollX,
                     y: rect.top + window.scrollY,
                     width: rect.width,
-                    height: rect.height
+                    height: Math.min(rect.height, 15000)
                 };
             """, target_el)
             
-            # 5-2. 긴 이미지 대비 점진적 스크롤
+            # 5-3. 긴 이미지 대비 점진적 스크롤 (이미지 로딩 유도)
             curr = rect['y']
             limit = rect['y'] + rect['height']
             while curr < limit:
                 driver.execute_script(f"window.scrollTo(0, {curr});")
-                curr += 1000
+                curr += 1200
                 time.sleep(0.3)
             
-            # 다시 상단으로
+            # 다시 타겟 상단으로
             driver.execute_script(f"window.scrollTo(0, {rect['y']});")
             time.sleep(1)
 
             # 6. CDP 정밀 캡처 (클리핑)
-            print(f"📸 본문 정밀 캡처 ({int(rect['width'])} x {int(rect['height'])})", file=sys.stderr)
+            print(f"📸 본문 정밀 캡처 ([X:{int(rect['x'])}] {int(rect['width'])} x {int(rect['height'])})", file=sys.stderr)
             
-            # 페이지 전체 높이 조정 (잘림 방지)
+            # 최종 높이에 맞춰 다시 한번 메트릭 설정 (잘림 방지)
             driver.execute_cdp_cmd("Emulation.setDeviceMetricsOverride", {
-                "width": 1280, "height": int(rect['y'] + rect['height'] + 500), "deviceScaleFactor": 1, "mobile": False
+                "width": 1280, "height": int(rect['y'] + rect['height'] + 1000), "deviceScaleFactor": 1, "mobile": False
             })
+            
+            # 캡처 시 좌우 여백을 아주 조금 더 줌 (안정성 위함)
+            capture_x = max(0, rect['x'] - 5)
+            capture_w = rect['width'] + 10
             
             result = driver.execute_cdp_cmd("Page.captureScreenshot", {
                 "format": "png", 
                 "fromSurface": True, 
                 "captureBeyondViewport": True,
                 "clip": {
-                    "x": rect['x'],
+                    "x": capture_x,
                     "y": rect['y'],
-                    "width": rect['width'],
+                    "width": capture_w,
                     "height": rect['height'],
                     "scale": 1
                 }
@@ -205,7 +254,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 def get_job_roles_and_metadata(ocr_text: str) -> dict:
     """공고에서 전체 공통 사항(회사명, 기간)과 직무 목록을 먼저 추출."""
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
     
     system_prompt = (
         "You are a senior Korean recruitment analyst specializing in parsing job postings (채용공고).\n"
@@ -218,48 +267,87 @@ def get_job_roles_and_metadata(ocr_text: str) -> dict:
         "If an English name and Korean name both appear, prefer the official Korean name.\n"
         "2. Extract the recruitment period. Look for keywords: '접수기간', '모집기간', '지원기간', '시작일', '마감일', '채용기간'. "
         "Normalize all dates to YYYY-MM-DD format. If only relative dates exist (e.g., '채용시 마감'), write them as-is.\n"
-        "3. List ALL distinct job roles/positions. In Korean JDs, roles may appear as:\n"
-        "   - Section headers like '[모집부문]', '모집직무', '채용분야'\n"
-        "   - Table rows with columns like '부문 | 직무 | 자격요건'\n"
-        "   - Numbered lists like '① 마케팅 ② 개발 ③ 디자인'\n"
-        "   - Image-based sections where each role has its own visual block\n"
-        "   - Combined formats like '경영지원/인사' should be split into separate roles if they have different requirements.\n"
-        "   - If only ONE role exists, return it as a single-item array.\n\n"
+        "3. List ALL distinct job roles. For EACH role, identify an 'anchor_sentence'. "
+        "   The anchor_sentence MUST be the EXACT text from the OCR where that job's specific section starts "
+        "   (e.g., if '백엔드 개발' starts with '[모집부문] 백엔드 개발', use that exact string).\n"
+        "4. Identify a 'common_section_anchor'. This is the EXACT text where the common info for all roles starts "
+        "   (e.g., '전형절차', '복리후생', '공통 자격요건'). If none exists, use an empty string.\n\n"
         
         "CRITICAL RULES:\n"
-        "- Do NOT include navigation text, ad text, or unrelated website UI elements.\n"
-        "- If the company name is unclear, look for the largest/boldest text or the first mention.\n"
-        "- For dates, '상시채용' or '채용시 마감' are valid values.\n"
-        "- Each role name should be concise but descriptive (e.g., '백엔드 개발자', not just '개발').\n"
-        "- If a role has sub-categories (e.g., '개발 - 프론트엔드, 백엔드'), list each sub-category as a separate role."
+        "- The anchor_sentence must be a unique, literal substring found in the input text.\n"
+        "- If a role has sub-categories, treat each as a separate role with its own anchor.\n\n"
+        "OUTPUT FORMAT: Return a JSON object with: company_name, start_date, end_date, "
+        "role_details (array of objects with 'title' and 'anchor_sentence'), and common_section_anchor (string)."
     )
-    
+
     schema = {
-        "name": "jd_metadata",
-        "schema": {
-            "type": "object",
-            "properties": {
-                "company_name": {"type": "string"},
-                "start_date": {"type": "string"},
-                "end_date": {"type": "string"},
-                "job_roles": {"type": "array", "items": {"type": "string"}}
+        "type": "OBJECT",
+        "properties": {
+            "company_name": {"type": "STRING"},
+            "start_date": {"type": "STRING"},
+            "end_date": {"type": "STRING"},
+            "role_details": {
+                "type": "ARRAY",
+                "items": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "title": {"type": "STRING"},
+                        "anchor_sentence": {"type": "STRING"}
+                    },
+                    "required": ["title", "anchor_sentence"]
+                }
             },
-            "required": ["company_name", "start_date", "end_date", "job_roles"],
-            "additionalProperties": False
+            "common_section_anchor": {"type": "STRING"}
         },
-        "strict": True
+        "required": ["company_name", "start_date", "end_date", "role_details", "common_section_anchor"]
     }
 
-    completion = client.chat.completions.create(
-        model="gpt-4o-mini",
-        response_format={"type": "json_schema", "json_schema": schema},
-        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": ocr_text}]
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=f"{system_prompt}\n\nUSER INPUT OCR TEXT:\n{ocr_text}",
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=schema
+        )
     )
-    return json.loads(completion.choices[0].message.content)
+    return json.loads(response.text)
 
-def analyze_individual_job(ocr_text: str, job_title: str, common_meta: dict) -> dict:
-    """특정 한 직무에 대해서만 OCR 텍스트에서 상세 정보를 추출."""
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+def slice_job_text(ocr_text: str, current_role: dict, next_role_anchor: str, common_anchor: str, search_from: int = 0) -> tuple:
+    """OCR 텍스트에서 해당 직무에 해당하는 부분만 물리적으로 잘라냄.
+    search_from을 통해 이전 직무 이후부터 검색하여 중복 앵커 문제 해결."""
+    start_anchor = current_role['anchor_sentence']
+    
+    # 시작점 찾기 (search_from 이후부터)
+    start_idx = ocr_text.find(start_anchor, search_from)
+    if start_idx == -1:
+        return ocr_text, search_from # 못 찾으면 전체 반환
+        
+    # 끝점 후보 (다음 직무 시작점 또는 공통 영역 시작점)
+    end_indices = []
+    if next_role_anchor:
+        idx = ocr_text.find(next_role_anchor, start_idx + len(start_anchor))
+        if idx != -1: end_indices.append(idx)
+    
+    if common_anchor:
+        idx = ocr_text.find(common_anchor, start_idx + len(start_anchor))
+        if idx != -1: end_indices.append(idx)
+        
+    # 가장 먼저 나오는 끝점 선택
+    end_idx = min(end_indices) if end_indices else len(ocr_text)
+    
+    # 해당 직무 텍스트 + 공통 영역(있다면) 결합
+    sliced_main = ocr_text[start_idx:end_idx]
+    common_part = ""
+    if common_anchor:
+        c_idx = ocr_text.find(common_anchor)
+        if c_idx != -1:
+            common_part = "\n\n[COMMON SECTION]\n" + ocr_text[c_idx:]
+            
+    return sliced_main + common_part, start_idx + len(start_anchor)
+
+def analyze_individual_job(sliced_text: str, job_title: str, common_meta: dict) -> dict:
+    """물리적으로 잘려진 텍스트 조각에서 상세 정보를 추출."""
+    client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
     
     fields_mapping = {
         "company_name": "회사명", "recruitment_field": "모집부문", "job_title": "모집직무",
@@ -273,6 +361,8 @@ def analyze_individual_job(ocr_text: str, job_title: str, common_meta: dict) -> 
         
         "CONTEXT:\n"
         f"- Company: {common_meta.get('company_name', '(unknown)')}\n"
+        f"- TARGET Role to extract EXACTLY: 「{job_title}」\n"
+        "- You are given a PRE-SLICED portion of the JD. If you suspect it contains text from ANOTHER role, strictly ignore the parts that don't belong to the target role.\n"
         f"- Recruitment Period: {common_meta.get('start_date', '')} ~ {common_meta.get('end_date', '')}\n"
         "- The text was extracted via OCR and may contain noise, broken characters, or misaligned data.\n\n"
         
@@ -298,39 +388,47 @@ def analyze_individual_job(ocr_text: str, job_title: str, common_meta: dict) -> 
         "8. start_date (채용시작일): Use the date from context above unless a role-specific date exists. Format: YYYY-MM-DD.\n"
         "9. end_date (채용마감일): Use the date from context above unless a role-specific deadline exists. "
         "   '상시채용', '채용시 마감', '수시' are valid values.\n"
-        "10. brief_summary (공고요약): Write a natural, human-readable 2-3 line summary IN KOREAN. "
-        "    It should describe: what the role does, key qualifications, and why someone might want to apply. "
-        "    Example: '삼성전자에서 클라우드 인프라를 설계하고 운영할 백엔드 개발자를 모집합니다. "
-        "    3년 이상의 경험과 AWS/GCP 활용 능력이 필요하며, MSA 경험자를 우대합니다.'\n\n"
+        "10. brief_summary (공고요약): 사용자가 직무를 선택하기 전 확인하는 요약문입니다. "
+        "    해당 직무의 주요 업무와 자격 요건을 하나의 흐름으로 연결하여 **정확히 2줄**로 요약하세요. "
+        "    단, '[주요업무]', '[자격요건]' 같은 라벨이나 말머리는 절대 사용하지 말고, "
+        "    읽기 자연스러운 문장으로 작성하십시오. (예: '서비스의 백엔드 아키텍처를 설계하고 운영하며, "
+        "    Java 3년 이상의 경력과 기본적인 인프라 운영 지식이 필요합니다.')\n\n"
         
         "CRITICAL RULES:\n"
-        "- Extract information ONLY relevant to 「{job_title}」. Ignore data for other roles.\n"
+        f"- Extract information ONLY relevant to 「{job_title}」. "
+        "- If the text contains headers for other positions, stop extracting and ignore that text.\n"
         "- If a section applies to ALL roles (공통 자격요건), include it in this role's output too.\n"
         "- NEVER fabricate information. If a field genuinely cannot be found, use an empty string \"\".\n"
         "- For bullet lists, each item MUST start with '- ' and be separated by '\\n'.\n"
-        "- OCR may have broken Korean characters. Use context to infer the correct word "
-        "(e.g., '개발' might appear as '개 발' or '개발').\n"
-        "- Tables in OCR text may appear as misaligned columns. Match columns carefully by position."
+        "- OCR may have broken Korean characters. Use context to infer the correct word.\n\n"
+        "OUTPUT FORMAT: You MUST return a JSON object using the following English keys:\n"
+        "  - company_name, recruitment_field, job_title, main_tasks, requirements, preferred_qualifications, location, start_date, end_date, brief_summary\n"
+        "  - Do not use Korean keys in the JSON itself. The system will map them."
     )
-    
+
     schema = {
-        "name": "single_job_analysis",
-        "schema": {
-            "type": "object",
-            "properties": {f: {"type": "string"} for f in fields_mapping.keys()},
-            "required": list(fields_mapping.keys()),
-            "additionalProperties": False
-        },
-        "strict": True
+        "type": "OBJECT",
+        "properties": {f: {"type": "STRING"} for f in fields_mapping.keys()},
+        "required": list(fields_mapping.keys())
     }
 
-    completion = client.chat.completions.create(
-        model="gpt-4o-mini",
-        response_format={"type": "json_schema", "json_schema": schema},
-        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": ocr_text}]
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=f"{system_prompt}\n\nUSER INPUT OCR TEXT:\n{sliced_text}",
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=schema
+        )
     )
     
-    raw_job = json.loads(completion.choices[0].message.content)
+    text = response.text.strip()
+    # JSON fencings 제거 (Gemini 강제 보정)
+    if "```json" in text:
+        text = text.split("```json")[-1].split("```")[0].strip()
+    elif "```" in text:
+        text = text.split("```")[-1].split("```")[0].strip()
+        
+    raw_job = json.loads(text)
     # 한글 키로 변환하여 반환
     return {fields_mapping[k]: (raw_job.get(k, "") or "") for k in fields_mapping.keys()}
 
@@ -338,17 +436,29 @@ def analyze_individual_job(ocr_text: str, job_title: str, common_meta: dict) -> 
 def summarize_with_openai(ocr_text: str) -> list:
     """메타데이터 추출 후 모든 직무를 병렬로 상세 분석함."""
     try:
-        # Step 1: 직무 목록 및 공통 정보 추출
+        # Step 1: 직무 목록 및 앵커 정보 추출
         meta_data = get_job_roles_and_metadata(ocr_text)
-        roles = meta_data.get("job_roles", [])
+        roles_info = meta_data.get("role_details", [])
+        common_anchor = meta_data.get("common_section_anchor", "")
         
-        if not roles:
+        if not roles_info:
             return []
 
-        # Step 2: 각 직무별 병렬 분석 실행
-        # 직무 제한 없이 모든 직무에 대해 병렬 처리 진행
+        # Step 2: 각 직무별 물리적 슬라이싱 및 병렬 분석 실행
+        results = []
+        current_pos = 0
         with ThreadPoolExecutor() as executor:
-            futures = [executor.submit(analyze_individual_job, ocr_text, role, meta_data) for role in roles]
+            temp_tasks = []
+            for i, role in enumerate(roles_info):
+                next_anchor = roles_info[i+1]['anchor_sentence'] if i+1 < len(roles_info) else ""
+                
+                # 텍스트 물리적 커팅 및 다음 검색 시작 위치 갱신
+                sliced_text, next_pos = slice_job_text(ocr_text, role, next_anchor, common_anchor, current_pos)
+                current_pos = next_pos
+                
+                temp_tasks.append((sliced_text, role['title']))
+                
+            futures = [executor.submit(analyze_individual_job, t[0], t[1], meta_data) for t in temp_tasks]
             results = [f.result() for f in futures]
             
         return results
@@ -364,10 +474,10 @@ def main() -> None:
     url = sys.argv[1].strip()
     
     try:
-        # 단일 URL 분석으로 단순화 (시퀀스 1 시도 안 함)
         screenshot_bytes, top_text, final_url = get_full_page_screenshot(url)
         if not screenshot_bytes:
             sys.exit(1)
+        
         
         ocr_text = extract_text_with_google_vision(screenshot_bytes)
         if not ocr_text.strip():
