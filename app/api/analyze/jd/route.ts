@@ -82,22 +82,39 @@ export async function POST(req: NextRequest) {
                     const { raw_text, structured } = parsedData;
 
                     // --- 3. 클라우드 DB에 결과 저장 (Prisma 활용) ---
-                    // 첫 번째 job(직무)에서 추천 제목 추출
                     const companyName = structured[0]?.["회사명"] || "알수없음";
-                    const jobTitle = structured[0]?.["모집직무"] || "직무 미상";
 
-                    const newAnalysis = await prisma.jobAnalysis.create({
-                        data: {
-                            userId: user.id,
-                            companyName,
-                            jobTitle,
-                            jdUrl: url,
-                            jdRawText: raw_text,
-                            analysisResult: structured
+                    // Transaction을 사용하여 JobAnalysis와 JobRoles를 함께 저장
+                    const newAnalysis = await (prisma as any).$transaction(async (tx: any) => {
+                        const analysis = await tx.jobAnalysis.create({
+                            data: {
+                                userId: user.id,
+                                companyName,
+                                jdUrl: url,
+                                jdRawText: raw_text,
+                                analysisResult: structured // 하위 호환성을 위해 유지
+                            }
+                        });
+
+                        // 개별 직무(Role) 레코드 생성
+                        if (Array.isArray(structured)) {
+                            await tx.jobRole.createMany({
+                                data: structured.map((job: any) => ({
+                                    analysisId: analysis.id,
+                                    roleTitle: job["모집직무"] || "직무 미상",
+                                    department: job["모집부문"] || "부문 미상",
+                                    location: job["근무지"] || "정보 없음",
+                                    requirements: job["자격요건"] || "",
+                                    tasks: job["주요업무"] || "",
+                                    preferred: job["우대사항"] || ""
+                                }))
+                            });
                         }
+
+                        return analysis;
                     });
 
-                    console.log(`💡 [DB SAVED] 새로운 분석 결과를 DB에 저장했습니다: ${url}`);
+                    console.log(`💡 [DB SAVED] 분석 결과 및 ${structured.length}개의 직무를 DB에 저장했습니다: ${url}`);
 
                     resolve(NextResponse.json({ result: structured, id: newAnalysis.id }));
                 } catch (parseError) {
