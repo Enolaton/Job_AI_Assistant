@@ -43,7 +43,9 @@ import {
     Mic,
     Trash2,
     Newspaper,
-    ExternalLink
+    ExternalLink,
+    X,
+    Copy
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useSession, signOut } from 'next-auth/react';
@@ -235,9 +237,9 @@ export default function DashboardClient() {
                     </div>
                     <div className="flex items-center gap-4">
                         {currentView === 'workspace' && (
-                            <button className="px-4 py-2 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 transition-all mr-2">
-                                저장하기
-                            </button>
+                            <div className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg mr-2 animate-pulse">
+                                실시간 작성 중
+                            </div>
                         )}
                         <div className="relative hidden md:block">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
@@ -424,11 +426,106 @@ function ActivityItem({ icon, title, subtitle, status, statusColor }: { icon: Re
 
 
 function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSelectJob: (job: any) => void }) {
+    const [drafts, setDrafts] = useState<any[]>([
+        { 
+            id: 'draft-1', 
+            name: '초안 1', 
+            tabs: ['문항 1', '문항 2', '문항 3', '문항 4'], 
+            questions: [
+                '지원 동기 및 입사 후 포부',
+                '직무 관련 프로젝트 경험',
+                '팀 워크 및 협업 사례',
+                '자신의 강점과 약점'
+            ],
+            contents: ['', '', '', ''], 
+            charLimits: [700, 700, 700, 700], 
+            isFinal: true 
+        }
+    ]);
+    const [activeDraftId, setActiveDraftId] = useState('draft-1');
     const [activeTab, setActiveTab] = useState(0);
-    const [content, setContent] = useState('');
     const [showEvaluation, setShowEvaluation] = useState(false);
     const [isDraftGenerated, setIsDraftGenerated] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
+    const [isEditingQuestion, setIsEditingQuestion] = useState(false);
+
+    const currentDraft = drafts.find(d => d.id === activeDraftId) || drafts[0];
+    const { tabs, contents } = currentDraft;
+    const companyName = selectedJob?.회사명 || '회사명';
+    const jobTitle = selectedJob?.모집부문 || selectedJob?.모집직무 || '직무';
+    const currentQuestionDetail = (currentDraft.questions || [])[activeTab] || '';
+
+    const currentStrategies = [
+        '해당 직무와 관련된 구체적인 프로젝트 성과를 정량적으로 기술하세요.',
+        '기업의 핵심 가치(인재상)와 본인의 경험을 연결하여 적합성을 강조하세요.',
+        '문제 해결 과정에서 본인의 주도적인 역할과 배운 점을 명확히 전달하세요.'
+    ];
+
+    React.useEffect(() => {
+        if (selectedJob) {
+            const loadDrafts = async () => {
+                setIsLoading(true);
+                try {
+                    const roleTitle = selectedJob.모집부문 || selectedJob.모집직무;
+                    const company = selectedJob.회사명;
+                    const res = await fetch(`/api/workspace?roleTitle=${encodeURIComponent(roleTitle)}&companyName=${encodeURIComponent(company)}`);
+                    const data = await res.json();
+                    if (data.drafts && data.drafts.length > 0) {
+                        setDrafts(data.drafts);
+                        setActiveDraftId(data.drafts[0].id);
+                        setActiveTab(0);
+                    }
+                } catch (error) {
+                    console.error('Failed to load drafts:', error);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+            loadDrafts();
+        }
+    }, [selectedJob]);
+
+    const handleSave = async () => {
+        if (!selectedJob) return;
+        
+        const saveToast = toast.loading('데이터 서버 저장 중...');
+        try {
+            // Role identification logic needs to be robust
+            const roleTitle = selectedJob.모집부문 || selectedJob.모집직무 || "전체";
+            const companyName = selectedJob.회사명;
+            
+            console.log('Saving drafts for:', { companyName, roleTitle });
+
+            const res = await fetch('/api/workspace', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    drafts: drafts.map(d => ({
+                        ...d,
+                        // Ensure all required fields exist
+                        tabs: d.tabs || ['문항 1'],
+                        questions: d.questions || d.tabs?.map((t: string) => t) || ['질문'],
+                        contents: d.contents || [''],
+                        charLimits: d.charLimits || d.tabs?.map(() => 700) || [700]
+                    })),
+                    roleTitle,
+                    companyName
+                })
+            });
+            
+            const result = await res.json();
+            
+            if (res.ok && result.success) {
+                toast.success('자기소개서가 서버에 영구 저장되었습니다.', { id: saveToast });
+            } else {
+                throw new Error(result.error || '저장 실패');
+            }
+        } catch (error: any) {
+            console.error('Save Error Details:', error);
+            toast.error(`저장 오류: ${error.message}`, { id: saveToast });
+        }
+    };
     const [isGuideOpen, setIsGuideOpen] = useState(true);
     const [isCompanyReportOpen, setIsCompanyReportOpen] = useState(false);
     const [companyReportData, setCompanyReportData] = useState<any>(null);
@@ -457,24 +554,6 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
         }
     }, [selectedJob]);
 
-    // Current question context (In a real app, this would change based on activeTab)
-    const companyName = selectedJob?.회사명 || '회사명';
-    const jobTitle = selectedJob?.모집부문 || selectedJob?.모집직무 || '직무';
-
-    const currentQuestion = {
-        title: "지원 동기 및 입사 후 포부",
-        description: `${companyName} ${jobTitle}에 지원한 동기와 본인이 이 직무에 적합하다고 생각하는 이유를 구체적으로 서술해 주십시오. (700자 이내)`,
-        strategies: [
-            '삼성전자의 최신 DX 이슈와 본인의 역량을 연결하여 구체적인 기여 방안을 제시하세요.',
-            '단순한 관심보다는 직무 관련 프로젝트 경험을 통해 준비된 인재임을 강조해야 합니다.',
-            '입사 후 포부는 3년, 5년, 10년 단위로 구체화하여 성장 로드맵을 보여주세요.'
-        ],
-        experiences: [
-            { title: 'A사 데이터 분석 인턴 프로젝트', type: '직무 관련', content: 'Python을 활용하여 고객 이탈률을 15% 감소시킨 경험. 데이터 전처리부터 모델링까지 주도적으로 수행함.' },
-            { title: 'B 공모전 대상 수상', type: '문제 해결', content: '팀장으로서 팀원 간의 갈등을 중재하고, 창의적인 아이디어로 대상을 수상함. 협업 능력 강조 가능.' },
-            { title: '학부 연구생 활동', type: '전문성', content: '최신 딥러닝 논문을 구현하고 실험 결과를 도출함. 끈기 있게 연구에 매진한 태도 어필.' }
-        ]
-    };
 
     const handleGenerateDraft = async () => {
         if (isGenerating) return;
@@ -482,10 +561,123 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
         setIsGenerating(true);
         // Next.js client-side Gemini call simulation
         setTimeout(() => {
-            setContent(`${companyName}의 ${jobTitle}는 사용자 중심의 경험을 최적화하는 데 있어 업계 표준을 제시하고 있습니다. 저는 과거 데이터 분석 프로젝트 시절, 논리적인 문제 해결 능력을 활용하여 유의미한 비즈니스 성과를 거두었습니다. 입사 후에도 이러한 데이터 기반의 의사결정 역량을 바탕으로 혁신적인 가치를 창출하겠습니다...`);
+            const newContents = [...contents];
+            newContents[activeTab] = `${companyName}의 ${jobTitle}는 사용자 중심의 경험을 최적화하는 데 있어 업계 표준을 제시하고 있습니다. 저는 과거 데이터 분석 프로젝트 시절, 논리적인 문제 해결 능력을 활용하여 유의미한 비즈니스 성과를 거두었습니다. 입사 후에도 이러한 데이터 기반의 의사결정 역량을 바탕으로 혁신적인 가치를 창출하겠습니다...`;
+            
+            setDrafts(drafts.map(d => d.id === activeDraftId ? { ...d, contents: newContents } : d));
             setIsDraftGenerated(true);
             setIsGenerating(false);
         }, 1500);
+    };
+
+    const handleAddTab = () => {
+        const nextNum = tabs.length + 1;
+        const newTabs = [...tabs, `문항 ${nextNum}`];
+        const newContents = [...contents, ''];
+        const newQuestions = [...(currentDraft.questions || tabs.map((t: string) => t)), `신규 문항 ${nextNum} 내용을 입력하세요.`];
+        setDrafts(drafts.map(d => d.id === activeDraftId ? { ...d, tabs: newTabs, contents: newContents, questions: newQuestions } : d));
+        setActiveTab(tabs.length);
+    };
+
+    const handleDeleteTab = (e: React.MouseEvent, index: number) => {
+        e.stopPropagation();
+        if (tabs.length <= 1) {
+            toast.error('최소 한 개의 문항은 유지되어야 합니다.');
+            return;
+        }
+
+        if (confirm('이 문항을 삭제하시겠습니까?')) {
+            const tempTabs = tabs.filter((_, i) => i !== index);
+            const newContents = contents.filter((_, i) => i !== index);
+            const resequencedTabs = tempTabs.map((_, i) => `문항 ${i + 1}`);
+            const newQuestions = (currentDraft.questions || []).filter((_, i) => i !== index);
+            
+            setDrafts(drafts.map(d => d.id === activeDraftId ? { ...d, tabs: resequencedTabs, contents: newContents, questions: newQuestions } : d));
+
+            if (activeTab >= index && activeTab > 0) {
+                setActiveTab(activeTab - 1);
+            } else if (activeTab >= resequencedTabs.length) {
+                setActiveTab(resequencedTabs.length - 1);
+            }
+        }
+    };
+
+    const handleAddDraft = () => {
+        const newId = `draft-${Date.now()}`;
+        const newDraft = {
+            id: newId,
+            name: `초안 ${drafts.length + 1}`,
+            tabs: ['문항 1', '문항 2', '문항 3', '문항 4'],
+            questions: ['', '', '', ''],
+            contents: ['', '', '', ''],
+            charLimits: [700, 700, 700, 700],
+            isFinal: false
+        };
+        setDrafts([...drafts, newDraft]);
+        setActiveDraftId(newId);
+        setActiveTab(0);
+        toast.success('새 초안이 생성되었습니다.');
+    };
+
+    const handleDuplicateDraft = (e: React.MouseEvent, id: string) => {
+        e.stopPropagation();
+        const draftToDup = drafts.find(d => d.id === id);
+        if (!draftToDup) return;
+        
+        const newId = `draft-${Date.now()}`;
+        const newDraft = {
+            ...draftToDup,
+            id: newId,
+            name: `${draftToDup.name} (복사본)`,
+            isFinal: false
+        };
+        setDrafts([...drafts, newDraft]);
+        setActiveDraftId(newId);
+        toast.success('초안이 복제되었습니다.');
+    };
+
+    const handleDeleteDraft = (e: React.MouseEvent, id: string) => {
+        e.stopPropagation();
+        if (drafts.length <= 1) {
+            toast.error('최소 한 개의 초안은 유지되어야 합니다.');
+            return;
+        }
+        if (confirm('이 초안 전체를 삭제하시겠습니까?')) {
+            const newDrafts = drafts.filter(d => d.id !== id);
+            setDrafts(newDrafts);
+            if (activeDraftId === id) {
+                setActiveDraftId(newDrafts[0].id);
+            }
+            toast.success('초안이 삭제되었습니다.');
+        }
+    };
+
+    const handleSetFinal = (e: React.MouseEvent, id: string) => {
+        e.stopPropagation();
+        setDrafts(drafts.map(d => ({
+            ...d,
+            isFinal: d.id === id
+        })));
+        toast.success('대표 초안으로 설정되었습니다.');
+    };
+
+    const handleRenameDraft = (id: string) => {
+        const draft = drafts.find(d => d.id === id);
+        if (!draft) return;
+        const newName = prompt('초안 이름을 입력하세요:', draft.name);
+        if (newName && newName.trim()) {
+            setDrafts(drafts.map(d => d.id === id ? { ...d, name: newName.trim() } : d));
+        }
+    };
+
+    const handleRenameTab = (index: number) => {
+        // 기능 제거 (사용자 요청)
+    };
+
+    const handleUpdateQuestionDetail = (val: string) => {
+        const newQuestions = [...(currentDraft.questions || tabs.map((t: string) => t))];
+        newQuestions[activeTab] = val;
+        setDrafts(drafts.map(d => d.id === activeDraftId ? { ...d, questions: newQuestions } : d));
     };
 
     const handleOpenCompanyReport = async () => {
@@ -623,8 +815,11 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
                 <div className="px-8 pt-6 pb-2">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 text-xs font-medium text-slate-400 mb-2">
-                            <button 
-                                onClick={() => onSelectJob(null)}
+                            <button
+                                onClick={() => {
+                                    setCompanyReportData(null);
+                                    onSelectJob(null);
+                                }}
                                 className="flex items-center gap-1 px-1.5 py-1 hover:bg-slate-100 rounded-md text-slate-500 hover:text-slate-900 transition-all mr-1"
                                 title="공고 선택으로 돌아가기"
                             >
@@ -636,13 +831,51 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
                             <ChevronRight size={12} />
                             <span className="text-blue-600">자기소개서 작성</span>
                         </div>
-                        <button
-                            onClick={handleOpenCompanyReport}
-                            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={handleSave}
+                                className="flex items-center gap-2 px-4 py-1.5 bg-slate-900 text-white rounded-lg text-xs font-bold hover:bg-slate-800 transition-all"
+                            >
+                                <Download size={16} /> 전체 저장
+                            </button>
+                            <button
+                                onClick={handleOpenCompanyReport}
+                                className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                            >
+                                <BarChart3 size={16} /> 기업 분석 리포트
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Draft Management Layer */}
+                    <div className="flex items-center gap-3 mt-4 mb-2 overflow-x-auto pb-2 custom-scrollbar no-scrollbar">
+                        {drafts.map((draft) => (
+                            <div 
+                                key={draft.id}
+                                onClick={() => {
+                                    setActiveDraftId(draft.id);
+                                    setActiveTab(0);
+                                }}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${activeDraftId === draft.id ? 'bg-slate-900 text-white border-slate-900 shadow-md' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'}`}
+                            >
+                                <span onDoubleClick={() => handleRenameDraft(draft.id)}>{draft.name}</span>
+                                {draft.isFinal && <Star size={12} className="fill-yellow-400 text-yellow-400" />}
+                                
+                                <div className="flex items-center gap-1 ml-1 pl-2 border-l border-slate-700/30">
+                                    <button onClick={(e) => handleDuplicateDraft(e, draft.id)} title="복제" className="hover:text-blue-400 p-0.5"><Copy size={12} /></button>
+                                    {!draft.isFinal && <button onClick={(e) => handleSetFinal(e, draft.id)} title="베스트 지정" className="hover:text-yellow-400 p-0.5"><Star size={12} /></button>}
+                                    {drafts.length > 1 && <button onClick={(e) => handleDeleteDraft(e, draft.id)} title="삭제" className="hover:text-red-400 p-0.5"><Trash2 size={12} /></button>}
+                                </div>
+                            </div>
+                        ))}
+                        <button 
+                            onClick={handleAddDraft}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-dashed border-slate-300 text-slate-400 text-xs font-bold hover:bg-slate-50 hover:border-slate-400 transition-all shrink-0"
                         >
-                            <BarChart3 size={16} /> 기업 분석 리포트
+                            <PlusCircle size={14} /> 새 초안 추가
                         </button>
                     </div>
+
                     <div className="flex items-center justify-between mt-1">
                         <h1 className="text-2xl font-bold text-slate-900">자기소개서 작성 워크스페이스</h1>
                         {!isGuideOpen && (
@@ -654,50 +887,163 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
                             </button>
                         )}
                     </div>
-                    <div className="flex gap-6 mt-6 border-b border-slate-100">
-                        {['문항 1', '문항 2', '문항 3', '문항 4'].map((tab, i) => (
-                            <button
-                                key={tab}
-                                onClick={() => setActiveTab(i)}
-                                className={`pb-3 text-sm font-bold transition-colors ${activeTab === i ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-                            >
-                                {tab}
-                            </button>
-                        ))}
+                    <div className="flex items-center gap-4 mt-6 border-b border-slate-100">
+                        <div className="flex gap-6">
+                            {tabs.map((tab, i) => (
+                                <button
+                                    key={i}
+                                    onClick={() => setActiveTab(i)}
+                                    className={`group relative pb-3 text-sm font-bold transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === i ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+                                >
+                                    <span className="max-w-[120px] truncate">{tab}</span>
+                                    {tabs.length > 1 && (
+                                        <span 
+                                            onClick={(e) => handleDeleteTab(e, i)}
+                                            className="p-0.5 rounded-md hover:bg-slate-100 text-slate-400 opacity-0 group-hover:opacity-100 transition-all hover:text-red-500"
+                                            title="삭제"
+                                        >
+                                            <X size={12} />
+                                        </span>
+                                    )}
+                                </button>
+                            ))}
+                        </div>
+                        <button
+                            onClick={handleAddTab}
+                            className="pb-3 text-slate-400 hover:text-blue-600 transition-colors"
+                            title="문항 추가"
+                        >
+                            <PlusCircle size={18} />
+                        </button>
                     </div>
                 </div>
 
                 {/* Question Box */}
                 <div className="px-8 py-4">
-                    <div className="flex items-start gap-4 rounded-2xl bg-blue-50 border border-blue-100 p-5">
-                        <div className="rounded-full bg-blue-100 p-2.5 text-blue-600 shrink-0">
-                            <HelpCircle size={20} className="fill-blue-600/10" />
-                        </div>
-                        <div>
-                            <p className="text-slate-900 font-bold text-sm">질문: {currentQuestion.title}</p>
-                            <p className="text-slate-500 text-xs mt-1.5 leading-relaxed">{currentQuestion.description}</p>
-                        </div>
+                    <div className={`relative transition-all duration-300 ${isEditingQuestion ? 'bg-white rounded-3xl border border-blue-300 shadow-xl shadow-blue-100/50 p-1.5' : 'bg-gradient-to-br from-blue-50/80 to-indigo-50/40 rounded-3xl border border-blue-100/80 p-6 cursor-pointer hover:shadow-md hover:shadow-blue-100/40 hover:border-blue-200 group'}`}>
+                        {isEditingQuestion ? (
+                            <div className="p-4">
+                                <div className="flex items-center justify-between mb-3 px-1">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+                                        <span className="text-sm font-bold text-slate-700">문항 상세 내용 편집</span>
+                                    </div>
+                                    <button 
+                                        onClick={() => setIsEditingQuestion(false)}
+                                        className="px-4 py-1.5 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-blue-600 transition-all shadow-sm"
+                                    >
+                                        작성 완료
+                                    </button>
+                                </div>
+                                <textarea
+                                    autoFocus
+                                    className="w-full min-h-[100px] bg-slate-50/50 border border-slate-200 rounded-2xl p-5 text-sm text-slate-800 focus:outline-none focus:bg-white focus:border-blue-400 focus:ring-4 focus:ring-blue-100/50 transition-all resize-none leading-relaxed"
+                                    placeholder="자기소개서 문항 내용을 상세히 입력하세요 (예: 본인의 지원동기와 입사 후 포부를 기술해 주세요)"
+                                    value={currentQuestionDetail}
+                                    onChange={(e) => handleUpdateQuestionDetail(e.target.value)}
+                                />
+                            </div>
+                        ) : (
+                            <div className="w-full relative px-2 py-1" onClick={() => setIsEditingQuestion(true)}>
+                                {/* Edit Badge */}
+                                <div className="absolute -top-3 -right-2 flex items-center gap-1.5 text-[10px] font-black tracking-wide text-blue-600 bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-full border border-blue-100 shadow-sm opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-1 group-hover:translate-y-0 z-10">
+                                    <Edit3 size={12} strokeWidth={3} /> 클릭하여 수정
+                                </div>
+                                
+                                <div className="flex items-start gap-4">
+                                    <div className="w-1.5 min-h-[40px] rounded-full bg-gradient-to-b from-blue-400 to-indigo-400 shrink-0"></div>
+                                    <div className="flex-1 relative">
+                                        <p className="text-slate-800 font-extrabold text-[15px] leading-relaxed tracking-tight break-keep pt-1.5">
+                                            {currentQuestionDetail || <span className="text-slate-400 font-medium italic">문항 내용을 입력해 주세요. (클릭하여 작성)</span>}
+                                        </p>
+                                        
+                                        {/* Example Tooltip - appears on hover when empty */}
+                                        {!currentQuestionDetail && (
+                                            <div className="absolute left-0 top-full mt-3 w-[340px] bg-white rounded-2xl border border-slate-200 shadow-xl shadow-slate-200/50 p-4 opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-300 translate-y-2 group-hover:translate-y-0 z-20">
+                                                <div className="flex items-center gap-2 mb-3">
+                                                    <div className="w-5 h-5 rounded-md bg-blue-100 flex items-center justify-center">
+                                                        <HelpCircle size={12} className="text-blue-600" />
+                                                    </div>
+                                                    <span className="text-[11px] font-bold text-slate-500 tracking-wide">질문 예시</span>
+                                                </div>
+                                                <ul className="space-y-2">
+                                                    {[
+                                                        '지원 동기 및 입사 후 포부를 기술해 주세요.',
+                                                        '직무 관련 프로젝트 경험을 구체적으로 서술해 주세요.',
+                                                        '팀워크 및 협업 과정에서의 성과를 알려주세요.',
+                                                        '본인의 강점과 이를 활용한 경험을 설명해 주세요.',
+                                                        '어려움을 극복한 경험과 그로부터 배운 점을 서술해 주세요.',
+                                                    ].map((ex, i) => (
+                                                        <li key={i} className="flex items-start gap-2 text-xs text-slate-600 leading-relaxed">
+                                                            <span className="mt-0.5 w-4 h-4 rounded-full bg-slate-100 text-[10px] font-bold text-slate-400 flex items-center justify-center shrink-0">{i + 1}</span>
+                                                            <span>{ex}</span>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                                <div className="mt-3 pt-2 border-t border-slate-100 text-[10px] text-slate-400 italic">위 내용은 참고 예시이며, 실제 공고의 문항을 직접 입력해 주세요.</div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
 
                 {/* Content Area */}
                 <div className="flex-1 px-8 py-2 overflow-y-auto custom-scrollbar">
                     <div className="relative h-full flex flex-col">
-                        <h3 className="text-slate-900 font-bold text-sm mb-3">작성 내용</h3>
+                        <div className="flex items-center justify-between mb-4 bg-slate-50/50 p-3 rounded-xl border border-slate-100">
+                            <div className="flex items-center gap-3 overflow-hidden">
+                                <h3 className="text-slate-900 font-bold text-sm shrink-0">작성 내용</h3>
+                            </div>
+                            
+                            <div className="flex items-center gap-2 shrink-0">
+                                <div className="flex items-center gap-1.5 px-2 py-1 bg-white rounded-lg border border-slate-200 shadow-sm">
+                                    <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">글자수</span>
+                                    <span className={`text-xs font-bold transition-colors ${(contents[activeTab] || '').length > ((currentDraft.charLimits || [])[activeTab] || 700) ? 'text-red-500' : 'text-slate-900'}`}>
+                                        {(contents[activeTab] || '').length}
+                                    </span> 
+                                    <span className="text-[10px] text-slate-300">/</span>
+                                    <input 
+                                        type="number"
+                                        min="100"
+                                        max="5000"
+                                        step="100"
+                                        className="w-14 text-xs font-bold text-slate-500 bg-transparent focus:outline-none focus:text-blue-600 border-none hover:bg-slate-50 focus:bg-white rounded px-1 transition-all text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none cursor-text"
+                                        value={(currentDraft.charLimits || [])[activeTab] === 0 ? '' : ((currentDraft.charLimits || [])[activeTab] || 700)}
+                                        onChange={(e) => {
+                                            const val = parseInt(e.target.value);
+                                            const newLimits = [...(currentDraft.charLimits || [])];
+                                            newLimits[activeTab] = isNaN(val) ? 0 : val;
+                                            setDrafts(drafts.map(d => d.id === activeDraftId ? { ...d, charLimits: newLimits } : d));
+                                        }}
+                                        onBlur={(e) => {
+                                            const val = parseInt(e.target.value);
+                                            if (isNaN(val) || val <= 0) {
+                                                const newLimits = [...(currentDraft.charLimits || [])];
+                                                newLimits[activeTab] = 700; // Restore to default if left empty or 0
+                                                setDrafts(drafts.map(d => d.id === activeDraftId ? { ...d, charLimits: newLimits } : d));
+                                            }
+                                        }}
+                                        title="글자수 제한 직접 수정"
+                                    />
+                                </div>
+                            </div>
+                        </div>
                         <textarea
                             className="flex-1 w-full min-h-[300px] resize-none rounded-2xl border border-slate-200 bg-white p-6 text-base text-slate-900 placeholder:text-slate-300 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 focus:outline-none shadow-sm leading-relaxed"
                             placeholder="이곳에 내용을 입력하거나 하단의 '초안 생성' 버튼을 눌러 AI의 도움을 받아보세요."
-                            value={content}
-                            onChange={(e) => setContent(e.target.value)}
+                            value={contents[activeTab] || ''}
+                            onChange={(e) => {
+                                const newContents = [...contents];
+                                newContents[activeTab] = e.target.value;
+                                setDrafts(drafts.map(d => d.id === activeDraftId ? { ...d, contents: newContents } : d));
+                            }}
                         />
 
                         {/* Footer Actions */}
                         <div className="mt-6 py-6 border-t border-slate-100 bg-white">
-                            <div className="flex justify-between items-center mb-4">
-                                <div className="text-xs text-slate-400 font-medium">
-                                    글자수: <span className="text-slate-900 font-bold">{content.length}자</span> / 700자
-                                </div>
-                            </div>
                             <div className="flex flex-col gap-3">
                                 <button
                                     onClick={handleGenerateDraft}
@@ -715,9 +1061,7 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
                                     )}
                                 </button>
 
-                                <button className="w-full flex items-center justify-center gap-2 h-12 bg-white border border-slate-200 rounded-xl text-slate-700 text-sm font-bold hover:bg-slate-50 transition-all shadow-sm">
-                                    <Edit3 size={18} className="text-blue-600" /> 소제목 생성
-                                </button>
+
                                 <button
                                     onClick={() => setShowEvaluation(true)}
                                     className="w-full flex items-center justify-center gap-2 h-12 bg-slate-900 text-white shadow-lg shadow-slate-900/20 rounded-xl text-sm font-bold hover:bg-slate-800 transition-all"
@@ -809,7 +1153,7 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
                         <div>
                             <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">AI 작성 전략 (JD 기반)</h4>
                             <div className="space-y-3">
-                                {currentQuestion.strategies.map((strategy, idx) => (
+                                {currentStrategies.map((strategy, idx) => (
                                     <div key={idx} className="flex gap-3 p-4 bg-slate-50 rounded-xl border border-slate-100">
                                         <div className="w-6 h-6 rounded-full bg-white text-blue-600 text-[10px] font-bold flex items-center justify-center shrink-0 border border-slate-200 shadow-sm">
                                             {idx + 1}
@@ -959,32 +1303,18 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
 
 function ExperienceBankView() {
     const [documents, setDocuments] = useState<any[]>([]);
-    const [experiences, setExperiences] = useState<Experience[]>([]);
+    const [experiences, setExperiences] = useState<any[]>([]);
     const [uploadingType, setUploadingType] = useState<string | null>(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
 
     React.useEffect(() => {
-        fetch(`/api/check?t=${Date.now()}`)
-            .then(res => res.json())
-            .then(data => console.log('CHECK RESPONSE:', data))
-            .catch(err => console.error('CHECK FAILED:', err));
-
-        fetch(`/api/hello?t=${Date.now()}`)
+        fetch(`/api/bank?t=${Date.now()}`)
             .then(res => res.json())
             .then(data => {
-                console.log('HELLO RESPONSE:', data);
-                // fetch original docs and experiences
-                fetch(`/api/bank?t=${Date.now()}`)
-                    .then(res => {
-                        console.log('[GET Bank Data] Status:', res.status);
-                        return res.json();
-                    })
-                    .then(data => {
-                        if (data.documents) setDocuments(data.documents);
-                        if (data.experiences) setExperiences(data.experiences);
-                    })
-                    .catch(err => console.error('[GET Bank Data] Failed:', err));
-            });
+                if (data.documents) setDocuments(data.documents);
+                if (data.experiences) setExperiences(data.experiences);
+            })
+            .catch(err => console.error('[GET Bank Data] Failed:', err));
     }, []);
 
     const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: string) => {
@@ -1001,155 +1331,183 @@ function ExperienceBankView() {
                 method: 'POST',
                 body: formData,
             });
-            console.log('[Upload] Status:', res.status);
             const data = await res.json();
             if (res.status !== 200) throw new Error(data.error || `Error ${res.status}`);
 
             setDocuments(prev => [...prev, data]);
-            alert('업로드 완료되었습니다.');
-        } catch (error) {
+            toast.success('문서가 업로드되었습니다.');
+        } catch (error: any) {
             console.error(error);
-            alert('업로드 중 오류가 발생했습니다.');
+            toast.error(`업로드 실패: ${error.message}`);
         } finally {
             setUploadingType(null);
-            if (e.target) e.target.value = ''; // Reset input
+            if (e.target) e.target.value = '';
         }
     };
 
     const handleDelete = async (id: string) => {
         if (!confirm('정말 삭제하시겠습니까?')) return;
-
         try {
-            const res = await fetch(`/api/bank?id=${id}&t=${Date.now()}`, {
-                method: 'DELETE',
-            });
-            const data = await res.json();
-            if (data.error) throw new Error(data.error);
-
-            setDocuments(prev => prev.filter(d => d.id !== id));
-            alert('삭제되었습니다.');
-        } catch (error: any) {
+            const res = await fetch(`/api/bank?id=${id}&t=${Date.now()}`, { method: 'DELETE' });
+            if (res.ok) {
+                setDocuments(prev => prev.filter(d => d.id !== id));
+                toast.success('삭제되었습니다.');
+            }
+        } catch (error) {
             console.error(error);
-            alert(`삭제 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`);
+            toast.error('삭제에 실패했습니다.');
         }
     };
 
-    const handleDeleteExperience = async (id: number) => {
+    const handleDeleteExperience = async (id: any) => {
         if (!confirm('이 경험 기록을 삭제하시겠습니까?')) return;
-
         try {
-            const res = await fetch(`/api/bank?expId=${id}&t=${Date.now()}`, {
-                method: 'DELETE',
-            });
-            const data = await res.json();
-            if (data.error) throw new Error(data.error);
-
-            setExperiences(prev => prev.filter(e => e.id !== id));
-            alert('경험 기록이 삭제되었습니다.');
-        } catch (error: any) {
+            const res = await fetch(`/api/bank?expId=${id}&t=${Date.now()}`, { method: 'DELETE' });
+            if (res.ok) {
+                setExperiences(prev => prev.filter(e => e.id !== id));
+                toast.success('삭제되었습니다.');
+            }
+        } catch (error) {
             console.error(error);
-            alert(`삭제 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`);
+            toast.error('삭제 실패');
         }
     };
 
     const handleAnalyze = async () => {
         if (documents.length === 0) {
-            alert('먼저 서류를 업로드해 주세요.');
+            toast.error('먼저 서류를 업로드해 주세요.');
             return;
         }
 
         setIsAnalyzing(true);
         try {
             const res = await fetch(`/api/bank?t=${Date.now()}`, { method: 'PUT' });
-
-            // Check if response is not JSON (might be 404 or other HTML error)
-            const contentType = res.headers.get("content-type");
-            if (!contentType || !contentType.includes("application/json")) {
-                const text = await res.text();
-                console.error('Non-JSON response:', text);
-                throw new Error(`서버 응답 오류 (Status: ${res.status}). 관리자에게 문의하세요.`);
-            }
-
             const data = await res.json();
             if (data.error) throw new Error(data.error);
 
-            // Replace old experiences with fresh analysis results
             if (data.experiences && data.experiences.length > 0) {
                 setExperiences(data.experiences);
-                alert(`${data.experiences.length}개의 새로운 경험이 분석되어 저장되었습니다!`);
+                toast.success(`${data.experiences.length}개의 새로운 경험이 분석되었습니다!`);
             } else {
-                alert('추가로 분석된 새로운 경험이 없습니다.');
+                toast.error('추가로 분석된 새로운 경험이 없습니다.');
             }
         } catch (error: any) {
-            console.error('[DashboardClient] Analysis error:', error);
-            alert(`분석 중 오류가 발생했습니다: ${error.message}`);
+            console.error(error);
+            toast.error(`분석 중 오류 발생: ${error.message}`);
         } finally {
             setIsAnalyzing(false);
         }
     };
 
+    const uploadedCount = documents.length;
+
     return (
-        <div className="h-full overflow-y-auto custom-scrollbar px-12 py-10 max-w-[1440px] mx-auto flex flex-col">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
-                <div className="flex flex-col gap-2">
-                    <h1 className="text-3xl font-black tracking-tight text-slate-900">경험 뱅크</h1>
-                    <p className="text-slate-500 text-base max-w-2xl">
-                        나만의 경험을 체계적으로 기록하고 관리하세요. AI가 직무 역량에 맞춰 다듬어 드립니다.
+        <div className="h-full overflow-y-auto custom-scrollbar px-6 md:px-12 py-10">
+            <div className="max-w-4xl mx-auto">
+                {/* Header Section */}
+                <div className="flex flex-col gap-2 mb-10 text-left">
+                    <div className="flex items-center gap-2 mb-1">
+                        <span className="px-3 py-1 bg-blue-100 text-blue-700 text-[10px] font-black uppercase tracking-wider rounded-full">Inventory</span>
+                    </div>
+                    <h1 className="text-4xl font-black tracking-tight text-slate-900 flex items-center gap-3">
+                        경험 뱅크 <span className="text-blue-600">.</span>
+                    </h1>
+                    <p className="text-slate-500 text-lg max-w-2xl leading-relaxed">
+                        나만의 실무 경험을 체계적으로 기록하세요. AI가 당신의 이력서와 포트폴리오에서 <span className="font-bold text-slate-700 underline decoration-blue-500/30">핵심 역량</span>을 찾아드립니다.
                     </p>
                 </div>
-                {MOCK_EXPERIENCES.length > 0 && (
-                    <button className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-600/20 transition-all hover:scale-105">
-                        <PlusCircle size={20} /> <span>내 경험 추가</span>
-                    </button>
-                )}
-            </div>
 
-            {/* 기본 항목 업로드 영역 */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-8">
-                <h2 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2">
-                    <FileText className="text-blue-600" size={24} /> 내 기본 서류
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <DocumentUploadCard type="RESUME" title="이력서" documents={documents} handleUpload={handleUpload} handleDelete={handleDelete} uploadingType={uploadingType} />
-                    <DocumentUploadCard type="COVER_LETTER" title="자기소개서" documents={documents} handleUpload={handleUpload} handleDelete={handleDelete} uploadingType={uploadingType} />
-                    <DocumentUploadCard type="PORTFOLIO" title="포트폴리오" documents={documents} handleUpload={handleUpload} handleDelete={handleDelete} uploadingType={uploadingType} />
-                </div>
+                <div className="space-y-12">
+                    <div className="bg-white rounded-3xl border border-slate-200 shadow-xl shadow-slate-200/40 p-10 relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 w-48 h-48 bg-blue-50 rounded-full -mr-24 -mt-24 transition-transform group-hover:scale-110 duration-700"></div>
+                        
+                        <div className="relative z-10">
+                            <div className="flex items-center justify-between mb-8">
+                                <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
+                                    <div className="p-2.5 bg-blue-600 text-white rounded-2xl">
+                                        <FileText size={24} />
+                                    </div>
+                                    내 프로젝트 및 실무 서류
+                                </h2>
+                                <div className="flex items-center gap-3 text-sm font-bold px-4 py-2 bg-slate-100 text-slate-500 rounded-xl">
+                                    업로드 현황 <span className="text-blue-600">{uploadedCount}/2</span>
+                                </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div className="group/card">
+                                    <DocumentUploadCard 
+                                        type="RESUME" 
+                                        title="경력기술서 / 이력서" 
+                                        documents={documents} 
+                                        handleUpload={handleUpload} 
+                                        handleDelete={handleDelete} 
+                                        uploadingType={uploadingType} 
+                                    />
+                                    <p className="mt-3 text-xs text-slate-400 font-medium px-2 italic">PDF, 이미지 형식이 가장 분석 품질이 좋습니다.</p>
+                                </div>
+                                <div className="group/card">
+                                    <DocumentUploadCard 
+                                        type="PORTFOLIO" 
+                                        title="포트폴리오 / 기획서" 
+                                        documents={documents} 
+                                        handleUpload={handleUpload} 
+                                        handleDelete={handleDelete} 
+                                        uploadingType={uploadingType} 
+                                    />
+                                    <p className="mt-3 text-xs text-slate-400 font-medium px-2 italic">성과 위주의 포트폴리오 분석을 권장합니다.</p>
+                                </div>
+                            </div>
 
-                <div className="mt-8 pt-6 border-t border-slate-100 flex justify-center">
-                    <button
-                        onClick={handleAnalyze}
-                        disabled={isAnalyzing || documents.length === 0}
-                        className={`flex items-center justify-center gap-2 px-10 py-4 bg-slate-900 text-white rounded-2xl font-bold text-lg transition-all shadow-xl hover:scale-105 active:scale-95 ${isAnalyzing || documents.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-800 shadow-slate-900/20'}`}
-                    >
-                        {isAnalyzing ? (
-                            <><Loader2 size={24} className="animate-spin" /> <span>경험 분석 중...</span></>
-                        ) : (
-                            <><Brain size={24} className="text-blue-400" /> <span>AI 경험 분석 시작</span></>
-                        )}
-                    </button>
-                </div>
-                <p className="text-center text-slate-400 text-sm mt-4">
-                    업로드한 이력서와 포트폴리오를 AI가 분석하여 직무 역량을 한눈에 정리해 드립니다.
-                </p>
-            </div>
-
-            {/* AI 분석 결과 영역 (experiences가 있을 때만 노출) */}
-            {experiences.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-8 mt-4 animate-in fade-in zoom-in duration-300">
-                    <h2 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
-                        <Brain className="text-blue-600" size={24} /> AI 분석 완료된 내 경험 (STARI)
-                    </h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4 items-start">
-                        {experiences.map(exp => (
-                            <ExperienceCard
-                                key={exp.id || Math.random().toString()}
-                                experience={exp}
-                                onDelete={() => exp.id && handleDeleteExperience(exp.id)}
-                            />
-                        ))}
+                            <div className="mt-12 pt-10 border-t border-slate-100 bg-slate-50/30 -mx-10 -mb-10 p-10 flex flex-col items-center">
+                                <button
+                                    onClick={handleAnalyze}
+                                    disabled={isAnalyzing || documents.length === 0}
+                                    className={`relative group flex items-center justify-center gap-4 px-16 py-6 rounded-3xl font-black text-2xl transition-all shadow-2xl active:scale-95 ${isAnalyzing || documents.length === 0 ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-slate-900 text-white hover:bg-blue-600 hover:-translate-y-1 shadow-blue-500/30'}`}
+                                >
+                                    {isAnalyzing ? (
+                                        <><Loader2 size={32} className="animate-spin" /> <span>심층 역량 추출 중...</span></>
+                                    ) : (
+                                        <>
+                                            <Brain size={32} className="text-blue-400" /> 
+                                            <span>AI 통합 경험 분석</span>
+                                            <ArrowRight size={24} className="group-hover:translate-x-2 transition-transform" />
+                                        </>
+                                    )}
+                                    {!isAnalyzing && documents.length > 0 && (
+                                        <div className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 rounded-full animate-ping"></div>
+                                    )}
+                                </button>
+                                <p className="mt-6 text-sm font-bold text-slate-400 flex items-center gap-2 uppercase tracking-tight">
+                                    <CheckCircle2 size={18} className="text-green-500" /> 모든 데이터는 암호화되어 보호됩니다
+                                </p>
+                            </div>
+                        </div>
                     </div>
+
+                    {experiences.length > 0 && (
+                        <div className="animate-in fade-in slide-in-from-bottom-8 duration-1000">
+                            <div className="flex items-center justify-between mb-8">
+                                <h2 className="text-3xl font-black text-slate-900 flex items-center gap-4">
+                                    <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center">
+                                        <Brain size={28} />
+                                    </div>
+                                    심층 분석 리포트 <span className="text-blue-600 text-base font-bold bg-blue-50 px-4 py-1.5 rounded-full">{experiences.length}개 유효 경험</span>
+                                </h2>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                                {experiences.map(exp => (
+                                    <ExperienceCard
+                                        key={exp.id || Math.random().toString()}
+                                        experience={exp}
+                                        onDelete={() => exp.id && handleDeleteExperience(exp.id)}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
-            )}
+            </div>
         </div>
     );
 }

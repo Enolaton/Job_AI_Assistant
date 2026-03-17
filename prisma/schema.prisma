@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
@@ -44,25 +45,45 @@ model JobAnalysis {
   id                Int                @id @default(autoincrement())
   userId            String             @map("user_id")
   companyName       String             @map("company_name")
-  jobTitle          String             @map("job_title")
   jdUrl             String?            @map("jd_url")
   jdRawText         String?            @map("jd_raw_text")
-  analysisResult    Json?              @map("analysis_result")
+  analysisResult    Json?              @map("analysis_result") // Legacy JSON storage
   createdAt         DateTime           @default(now()) @map("created_at")
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobRoles          JobRole[]
   selfIntroductions SelfIntroduction[]
 
   @@map("job_analyses")
+}
+
+model JobRole {
+  id                Int                @id @default(autoincrement())
+  analysisId        Int                @map("analysis_id")
+  roleTitle         String             @map("role_title") // 모집직무
+  department        String?            @map("department") // 모집부문
+  location          String?            @map("location")   // 근무지
+  requirements      String?            @map("requirements")
+  tasks             String?            @map("tasks")
+  preferred         String?            @map("preferred")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  jobAnalysis       JobAnalysis        @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  selfIntroductions SelfIntroduction[]
+
+  @@map("job_roles")
 }
 
 model SelfIntroduction {
   id          Int             @id @default(autoincrement())
   userId      String          @map("user_id")
   analysisId  Int?            @map("analysis_id")
-  title       String
+  roleId      Int?            @map("role_id")
+  title       String          // Display title
+  name        String?         // Draft name (e.g., "초안 1")
+  isFinal     Boolean         @default(false) @map("is_final")
   createdAt   DateTime        @default(now()) @map("created_at")
   items       SelfIntroItem[]
   jobAnalysis JobAnalysis?    @relation(fields: [analysisId], references: [id])
+  jobRole     JobRole?        @relation(fields: [roleId], references: [id])
   user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("self_introductions")
@@ -74,6 +95,7 @@ model SelfIntroItem {
   question           String
   answer             String?
   aiGuide            String?          @map("ai_guide")
+  charLimit          Int              @default(700) @map("char_limit")
   orderIndex         Int              @map("order_index")
   selfIntroduction   SelfIntroduction @relation(fields: [selfIntroductionId], references: [id], onDelete: Cascade)
 

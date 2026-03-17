@@ -3,17 +3,18 @@ import sys
 import time
 import base64
 import json
-import psycopg2
+import psycopg2  # type: ignore
 from urllib.parse import urlparse
 from typing import Union
+from concurrent.futures import ThreadPoolExecutor
 
-from dotenv import load_dotenv
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from google import genai
-from google.genai import types
-from google.cloud import vision
+from dotenv import load_dotenv  # type: ignore
+from selenium import webdriver  # type: ignore
+from selenium.webdriver.chrome.options import Options  # type: ignore
+from selenium.webdriver.common.by import By  # type: ignore
+from google import genai  # type: ignore
+from google.genai import types  # type: ignore
+from google.cloud import vision  # type: ignore
 
 load_dotenv()
 
@@ -49,7 +50,7 @@ SITE_SELECTORS = {
     ]
 }
 
-def get_full_page_screenshot(url: str) -> Union[bytes, None]:
+def get_full_page_screenshot(url: str) -> tuple[Union[bytes, None], str, str]:
     """사이트별 정밀 셀렉터를 활용하여 공고 본문 영역만 타겟팅하여 캡처."""
     print(f"▶ URL 접속 중: {url}", file=sys.stderr)
     
@@ -150,6 +151,7 @@ def get_full_page_screenshot(url: str) -> Union[bytes, None]:
                 except: continue
 
         # 5. 타겟 영역 이미지 로딩 및 크기 측정
+        if target_el:
             # 5-1. 먼저 뷰포트 크기를 고정하여 레이아웃을 안정화 (가로 1280 기준)
             driver.execute_cdp_cmd("Emulation.setDeviceMetricsOverride", {
                 "width": 1280, "height": 2000, "deviceScaleFactor": 1, "mobile": False
@@ -235,6 +237,7 @@ def get_full_page_screenshot(url: str) -> Union[bytes, None]:
         return None, "", url
     finally:
         driver.quit()
+    return None, "", url
 
 def extract_text_with_google_vision(image_bytes: bytes) -> str:
     """스크린샷 이미지를 Google Cloud Vision API로 OCR하여 텍스트 추출."""
@@ -249,8 +252,6 @@ def extract_text_with_google_vision(image_bytes: bytes) -> str:
     except Exception as e:
         print(f"OCR 오류: {e}", file=sys.stderr)
         return ""
-
-from concurrent.futures import ThreadPoolExecutor
 
 def get_job_roles_and_metadata(ocr_text: str) -> dict:
     """공고에서 전체 공통 사항(회사명, 기간)과 직무 목록을 먼저 추출."""
@@ -312,7 +313,7 @@ def get_job_roles_and_metadata(ocr_text: str) -> dict:
     )
     return json.loads(response.text)
 
-def slice_job_text(ocr_text: str, current_role: dict, next_role_anchor: str, common_anchor: str, search_from: int = 0) -> tuple:
+def slice_job_text(ocr_text: str, current_role: dict, next_role_anchor: str, common_anchor: str, search_from: int = 0) -> tuple[str, int]:
     """OCR 텍스트에서 해당 직무에 해당하는 부분만 물리적으로 잘라냄.
     search_from을 통해 이전 직무 이후부터 검색하여 중복 앵커 문제 해결."""
     start_anchor = current_role['anchor_sentence']
@@ -336,16 +337,18 @@ def slice_job_text(ocr_text: str, current_role: dict, next_role_anchor: str, com
     end_idx = min(end_indices) if end_indices else len(ocr_text)
     
     # 해당 직무 텍스트 + 공통 영역(있다면) 결합
-    sliced_main = ocr_text[start_idx:end_idx]
+    s_idx = int(start_idx)
+    e_idx = int(end_idx)
+    sliced_main = ocr_text[s_idx:e_idx]  # type: ignore
     common_part = ""
     if common_anchor:
         c_idx = ocr_text.find(common_anchor)
         if c_idx != -1:
-            common_part = "\n\n[COMMON SECTION]\n" + ocr_text[c_idx:]
+            common_part = "\n\n[COMMON SECTION]\n" + ocr_text[int(c_idx):]  # type: ignore
             
     return sliced_main + common_part, start_idx + len(start_anchor)
 
-def analyze_individual_job(sliced_text: str, job_title: str, common_meta: dict) -> dict:
+def analyze_individual_job(sliced_text: str, job_title: str, common_meta: dict, all_roles: list = []) -> dict:
     """물리적으로 잘려진 텍스트 조각에서 상세 정보를 추출."""
     client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
     
@@ -362,6 +365,7 @@ def analyze_individual_job(sliced_text: str, job_title: str, common_meta: dict) 
         "CONTEXT:\n"
         f"- Company: {common_meta.get('company_name', '(unknown)')}\n"
         f"- TARGET Role to extract EXACTLY: 「{job_title}」\n"
+        f"- All roles listed in this JD (for boundary reference): {', '.join([r.get('title', '') for r in all_roles])}\n"
         "- You are given a PRE-SLICED portion of the JD. If you suspect it contains text from ANOTHER role, strictly ignore the parts that don't belong to the target role.\n"
         f"- Recruitment Period: {common_meta.get('start_date', '')} ~ {common_meta.get('end_date', '')}\n"
         "- The text was extracted via OCR and may contain noise, broken characters, or misaligned data.\n\n"
@@ -389,10 +393,9 @@ def analyze_individual_job(sliced_text: str, job_title: str, common_meta: dict) 
         "9. end_date (채용마감일): Use the date from context above unless a role-specific deadline exists. "
         "   '상시채용', '채용시 마감', '수시' are valid values.\n"
         "10. brief_summary (공고요약): 사용자가 직무를 선택하기 전 확인하는 요약문입니다. "
-        "    해당 직무의 주요 업무와 자격 요건을 하나의 흐름으로 연결하여 **정확히 2줄**로 요약하세요. "
+        "    해당 직무의 모집 부문과 핵심 역할을 중심으로 한 줄로 명확하게 요약하세요. "
         "    단, '[주요업무]', '[자격요건]' 같은 라벨이나 말머리는 절대 사용하지 말고, "
-        "    읽기 자연스러운 문장으로 작성하십시오. (예: '서비스의 백엔드 아키텍처를 설계하고 운영하며, "
-        "    Java 3년 이상의 경력과 기본적인 인프라 운영 지식이 필요합니다.')\n\n"
+        "    읽기 자연스러운 문장으로 작성하십시오. (예: '서비스의 백엔드 아키텍처를 설계하고 운영하며, Java 3년 이상의 경력과 기본적인 인프라 운영 지식이 필요합니다.')\n\n"
         
         "CRITICAL RULES:\n"
         f"- Extract information ONLY relevant to 「{job_title}」. "
@@ -422,15 +425,18 @@ def analyze_individual_job(sliced_text: str, job_title: str, common_meta: dict) 
     )
     
     text = response.text.strip()
-    # JSON fencings 제거 (Gemini 강제 보정)
     if "```json" in text:
         text = text.split("```json")[-1].split("```")[0].strip()
     elif "```" in text:
         text = text.split("```")[-1].split("```")[0].strip()
         
-    raw_job = json.loads(text)
+    try:
+        raw_job = json.loads(text)
+    except Exception:
+        return {}
+        
     # 한글 키로 변환하여 반환
-    return {fields_mapping[k]: (raw_job.get(k, "") or "") for k in fields_mapping.keys()}
+    return {fields_mapping[k]: (raw_job.get(k, "") or "") for k in fields_mapping.keys() if k in raw_job}
 
 
 def summarize_with_openai(ocr_text: str) -> list:
@@ -458,28 +464,31 @@ def summarize_with_openai(ocr_text: str) -> list:
                 
                 temp_tasks.append((sliced_text, role['title']))
                 
-            futures = [executor.submit(analyze_individual_job, t[0], t[1], meta_data) for t in temp_tasks]
+            futures = [executor.submit(analyze_individual_job, t[0], t[1], meta_data, roles_info) for t in temp_tasks]  # type: ignore
             results = [f.result() for f in futures]
             
-        return results
+        # 빈 결과 필터링
+        return [r for r in results if r]
     except Exception as e:
         print(f"AI 분석 중 오류: {e}", file=sys.stderr)
         return []
 
 def main() -> None:
     if sys.stdout.encoding.lower() != 'utf-8':
-        sys.stdout.reconfigure(encoding='utf-8')
+        reconf = getattr(sys.stdout, 'reconfigure', None)
+        if reconf:
+            reconf(encoding='utf-8')
         
     if len(sys.argv) < 2: sys.exit(1)
     url = sys.argv[1].strip()
     
     try:
         screenshot_bytes, top_text, final_url = get_full_page_screenshot(url)
-        if not screenshot_bytes:
+        if screenshot_bytes is None or not isinstance(screenshot_bytes, bytes):
             sys.exit(1)
         
         
-        ocr_text = extract_text_with_google_vision(screenshot_bytes)
+        ocr_text = extract_text_with_google_vision(screenshot_bytes)  # type: ignore
         if not ocr_text.strip():
             sys.exit(1)
         

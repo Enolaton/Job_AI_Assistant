@@ -4,12 +4,18 @@ import bcrypt from "bcryptjs";
 import { NextAuthOptions } from "next-auth";
 import crypto from "crypto";
 
-// [Method 1] Generate a unique ID for this server instance.
-// Using global to persist across hot-reloads, but it resets on a full server restart.
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+// [Security] Generate a unique ID per server deployment.
+// This is ONLY used in production to invalidate old sessions after a new deployment.
+// In development, Next.js recompiles modules in multiple contexts (middleware, API routes, pages),
+// each getting their own `global`, which causes constant LAUNCH_ID mismatches and session drops.
 const globalForAuth = global as unknown as { launchId: string };
 if (!globalForAuth.launchId) {
-    globalForAuth.launchId = crypto.randomBytes(16).toString('hex');
-    console.log(`🚀 [Auth] Server started with Launch ID: ${globalForAuth.launchId}`);
+    globalForAuth.launchId = IS_PRODUCTION
+        ? crypto.randomBytes(16).toString('hex')
+        : 'dev-stable';
+    console.log(`🚀 [Auth] Launch ID: ${globalForAuth.launchId} (${IS_PRODUCTION ? 'production' : 'development'})`);
 }
 const LAUNCH_ID = globalForAuth.launchId;
 
@@ -53,21 +59,19 @@ export const authOptions: NextAuthOptions = {
     ],
     callbacks: {
         async jwt({ token, user }) {
-            // When signing in, add the current server's LAUNCH_ID to the token
             if (user) {
                 token.launchId = LAUNCH_ID;
             }
             
-            // If the token's LAUNCH_ID doesn't match the current server's, it's an old session
-            if (token.launchId !== LAUNCH_ID) {
+            // Only enforce LAUNCH_ID check in production
+            if (IS_PRODUCTION && token.launchId && token.launchId !== LAUNCH_ID) {
                 console.log(`⚠️ [Auth] Session invalidated: Token ID (${token.launchId}) != Server ID (${LAUNCH_ID})`);
-                return {}; // Return empty to effectively invalidate
+                return {};
             }
             
             return token;
         },
         async session({ session, token }) {
-            // If token is empty (invalidated in jwt callback), do not provide a session
             if (!token.email) {
                 return null as any;
             }
@@ -79,7 +83,7 @@ export const authOptions: NextAuthOptions = {
     },
     session: {
         strategy: "jwt",
-        maxAge: 30 * 60, // [Method 2] 30 minutes
+        maxAge: 30 * 60, // 30 minutes
     },
     secret: process.env.NEXTAUTH_SECRET || "fallback-secret-for-dev",
 };
