@@ -39,13 +39,16 @@ import {
     Zap,
     Target,
     Loader2,
+    ChevronDown,
     LogOut,
     Mic,
     Trash2,
+    Save,
     Newspaper,
     ExternalLink,
     X,
-    Copy
+    Copy,
+    RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useSession, signOut } from 'next-auth/react';
@@ -57,6 +60,22 @@ const MOCK_EXPERIENCES: Experience[] = [];
 // --- Helper Functions ---
 const formatDate = (dateString: string) => {
     const date = new Date(dateString);
+    return `${date.getMonth() + 1}월 ${date.getDate()}일`;
+};
+
+const formatRelativeTime = (dateString?: string) => {
+    if (!dateString) return '수정 기록 없음';
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInMs = now.getTime() - date.getTime();
+    const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
+    
+    if (diffInMinutes < 1) return '방금 전';
+    if (diffInMinutes < 60) return `${diffInMinutes}분 전`;
+    
+    const diffInHours = Math.floor(diffInMinutes / 60);
+    if (diffInHours < 24) return `${diffInHours}시간 전`;
+    
     return `${date.getMonth() + 1}월 ${date.getDate()}일`;
 };
 
@@ -138,7 +157,13 @@ export default function DashboardClient() {
                     analysisResult={analysisResult}
                 />
             );
-            case 'workspace': return <WorkspaceView selectedJob={selectedJobForWorkspace} onSelectJob={setSelectedJobForWorkspace} />;
+            case 'workspace': return (
+                <WorkspaceView 
+                    selectedJob={selectedJobForWorkspace} 
+                    onSelectJob={setSelectedJobForWorkspace} 
+                    onViewChange={setCurrentView}
+                />
+            );
             case 'experience': return <ExperienceBankView />;
             case 'analysis': return (
                 <CompanyAnalysisView
@@ -425,21 +450,22 @@ function ActivityItem({ icon, title, subtitle, status, statusColor }: { icon: Re
 }
 
 
-function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSelectJob: (job: any) => void }) {
+function WorkspaceView({ selectedJob, onSelectJob, onViewChange }: { selectedJob?: any, onSelectJob: (job: any) => void, onViewChange: (view: ViewType) => void }) {
     const [drafts, setDrafts] = useState<any[]>([
-        { 
-            id: 'draft-1', 
-            name: '초안 1', 
-            tabs: ['문항 1', '문항 2', '문항 3', '문항 4'], 
+        {
+            id: 'draft-1',
+            name: '자기소개서 1',
+            tabs: ['문항 1', '문항 2', '문항 3', '문항 4'],
             questions: [
                 '지원 동기 및 입사 후 포부',
                 '직무 관련 프로젝트 경험',
                 '팀 워크 및 협업 사례',
                 '자신의 강점과 약점'
             ],
-            contents: ['', '', '', ''], 
-            charLimits: [700, 700, 700, 700], 
-            isFinal: true 
+            contents: ['', '', '', ''],
+            charLimits: [700, 700, 700, 700],
+            status: '작성전',
+            isFinal: true
         }
     ]);
     const [activeDraftId, setActiveDraftId] = useState('draft-1');
@@ -449,6 +475,8 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
     const [isGenerating, setIsGenerating] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [isEditingQuestion, setIsEditingQuestion] = useState(false);
+    const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false); // 워크스페이스 진입 여부
+    const [openStatusId, setOpenStatusId] = useState<string | null>(null); // 현재 열린 상태 드롭다운 ID
 
     const currentDraft = drafts.find(d => d.id === activeDraftId) || drafts[0];
     const { tabs, contents } = currentDraft;
@@ -462,8 +490,12 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
         '문제 해결 과정에서 본인의 주도적인 역할과 배운 점을 명확히 전달하세요.'
     ];
 
+    // 선택된 공고(selectedJob) 변경 시 상태 초기화 및 데이터 로드 (Reset State & Load Data)
     React.useEffect(() => {
         if (selectedJob) {
+            // 다른 공고 선택 시 이전 기업 분석 데이터가 남아있지 않도록 초기화 (Isolation)
+            setCompanyReportData(null);
+            
             const loadDrafts = async () => {
                 setIsLoading(true);
                 try {
@@ -488,13 +520,13 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
 
     const handleSave = async () => {
         if (!selectedJob) return;
-        
+
         const saveToast = toast.loading('데이터 서버 저장 중...');
         try {
             // Role identification logic needs to be robust
             const roleTitle = selectedJob.모집부문 || selectedJob.모집직무 || "전체";
             const companyName = selectedJob.회사명;
-            
+
             console.log('Saving drafts for:', { companyName, roleTitle });
 
             const res = await fetch('/api/workspace', {
@@ -507,16 +539,23 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
                         tabs: d.tabs || ['문항 1'],
                         questions: d.questions || d.tabs?.map((t: string) => t) || ['질문'],
                         contents: d.contents || [''],
-                        charLimits: d.charLimits || d.tabs?.map(() => 700) || [700]
+                        charLimits: d.charLimits || d.tabs?.map(() => 700) || [700],
+                        status: d.status || '작성전'
                     })),
                     roleTitle,
                     companyName
                 })
             });
-            
+
             const result = await res.json();
-            
+            const now = new Date().toISOString();
+
             if (res.ok && result.success) {
+                // 저장 성공 시 로컬 상태의 updatedAt을 현재 시간으로 업데이트
+                setDrafts(prev => prev.map(d => ({
+                    ...d,
+                    updatedAt: now
+                })));
                 toast.success('자기소개서가 서버에 영구 저장되었습니다.', { id: saveToast });
             } else {
                 throw new Error(result.error || '저장 실패');
@@ -526,10 +565,12 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
             toast.error(`저장 오류: ${error.message}`, { id: saveToast });
         }
     };
-    const [isGuideOpen, setIsGuideOpen] = useState(true);
+    const [isGuideOpen, setIsGuideOpen] = useState(false);
     const [isCompanyReportOpen, setIsCompanyReportOpen] = useState(false);
     const [companyReportData, setCompanyReportData] = useState<any>(null);
     const [isLoadingReport, setIsLoadingReport] = useState(false);
+    const [showCharLimitPopover, setShowCharLimitPopover] = useState(false);
+    const [tempCharLimit, setTempCharLimit] = useState<string>('');
 
     // State for job selection
     const [history, setHistory] = useState<any[]>([]);
@@ -563,7 +604,7 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
         setTimeout(() => {
             const newContents = [...contents];
             newContents[activeTab] = `${companyName}의 ${jobTitle}는 사용자 중심의 경험을 최적화하는 데 있어 업계 표준을 제시하고 있습니다. 저는 과거 데이터 분석 프로젝트 시절, 논리적인 문제 해결 능력을 활용하여 유의미한 비즈니스 성과를 거두었습니다. 입사 후에도 이러한 데이터 기반의 의사결정 역량을 바탕으로 혁신적인 가치를 창출하겠습니다...`;
-            
+
             setDrafts(drafts.map(d => d.id === activeDraftId ? { ...d, contents: newContents } : d));
             setIsDraftGenerated(true);
             setIsGenerating(false);
@@ -591,7 +632,7 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
             const newContents = contents.filter((_, i) => i !== index);
             const resequencedTabs = tempTabs.map((_, i) => `문항 ${i + 1}`);
             const newQuestions = (currentDraft.questions || []).filter((_, i) => i !== index);
-            
+
             setDrafts(drafts.map(d => d.id === activeDraftId ? { ...d, tabs: resequencedTabs, contents: newContents, questions: newQuestions } : d));
 
             if (activeTab >= index && activeTab > 0) {
@@ -606,24 +647,25 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
         const newId = `draft-${Date.now()}`;
         const newDraft = {
             id: newId,
-            name: `초안 ${drafts.length + 1}`,
+            name: `자기소개서 ${drafts.length + 1}`,
             tabs: ['문항 1', '문항 2', '문항 3', '문항 4'],
             questions: ['', '', '', ''],
             contents: ['', '', '', ''],
             charLimits: [700, 700, 700, 700],
+            status: '작성전',
             isFinal: false
         };
         setDrafts([...drafts, newDraft]);
         setActiveDraftId(newId);
         setActiveTab(0);
-        toast.success('새 초안이 생성되었습니다.');
+        toast.success('새 자기소개서가 생성되었습니다.');
     };
 
     const handleDuplicateDraft = (e: React.MouseEvent, id: string) => {
         e.stopPropagation();
         const draftToDup = drafts.find(d => d.id === id);
         if (!draftToDup) return;
-        
+
         const newId = `draft-${Date.now()}`;
         const newDraft = {
             ...draftToDup,
@@ -680,18 +722,34 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
         setDrafts(drafts.map(d => d.id === activeDraftId ? { ...d, questions: newQuestions } : d));
     };
 
-    const handleOpenCompanyReport = async () => {
+    const handleUpdateStatus = (id: string, newStatus: string) => {
+        setDrafts(prev => prev.map(d => d.id === id ? { ...d, status: newStatus } : d));
+        toast.success(`상태가 '${newStatus}'(으)로 변경되었습니다.`);
+    };
+
+    const getStatusColor = (status: string) => {
+        switch (status) {
+            case '작성중': return 'text-orange-600';
+            case '작성 완료': return 'text-green-600';
+            case '지원 완료': return 'text-blue-600';
+            default: return 'text-slate-500';
+        }
+    };
+
+    const handleOpenCompanyReport = async (force: boolean = false) => {
         setIsCompanyReportOpen(true);
-        if (companyReportData) return;
+        if (companyReportData && !force) return;
         setIsLoadingReport(true);
         try {
             const res = await fetch('/api/analyze/company', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ companyName, jobTitle })
+                body: JSON.stringify({ companyName, jobTitle, forceRefresh: force })
             });
             const data = await res.json();
+            if (data.error) throw new Error(data.error);
             setCompanyReportData(data);
+            if (force) toast.success('기업 정보를 새로고침했습니다.');
         } catch (error) {
             console.error('Company report error:', error);
             toast.error('기업 분석 중 오류가 발생했습니다.');
@@ -700,9 +758,20 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
         }
     };
 
+    const getStatusInfo = (status: string) => {
+        switch (status) {
+            case '작성중': return { color: 'bg-orange-500', text: '작성중' };
+            case '작성 완료': return { color: 'bg-green-500', text: '작성 완료' };
+            case '지원 완료': return { color: 'bg-blue-500', text: '지원 완료' };
+            default: return { color: 'bg-slate-300', text: '작성전' };
+        }
+    };
+
     if (!selectedJob) {
+        // [1단계] 공고 선택 화면 (기존 루틴)
         return (
             <div className="h-full overflow-y-auto custom-scrollbar px-12 py-10 max-w-5xl mx-auto">
+                {/* ... 기존 공고 선택 UI ... */}
                 <div className="text-center mb-10">
                     <div className="w-16 h-16 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
                         <Edit3 size={32} />
@@ -754,7 +823,7 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
                             <div className="text-center py-20 bg-slate-50 rounded-3xl border border-dashed border-slate-200">
                                 <p className="text-slate-400 font-medium mb-4">분석한 공고가 없습니다.</p>
                                 <button
-                                    onClick={() => (window as any).setCurrentView('analysis')}
+                                    onClick={() => onViewChange('analysis')}
                                     className="px-6 py-2 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20"
                                 >
                                     공고 분석하러 가기
@@ -797,7 +866,7 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
                                         </div>
                                     </div>
                                     <div className="mt-6 pt-4 border-t border-slate-50 flex items-center gap-2 text-xs font-bold text-slate-400 group-hover:text-purple-600 transition-colors">
-                                        선택하여 자기소개서 쓰기 <ChevronRight size={14} />
+                                        선택하여 자기소개서 관리 <ChevronRight size={14} />
                                     </div>
                                 </div>
                             ))}
@@ -808,84 +877,178 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
         );
     }
 
+    if (!isWorkspaceOpen) {
+        // [2단계] 자기소개서 리스트 관리 (사용자 요청에 따라 신설)
+        return (
+            <div className="h-full overflow-y-auto custom-scrollbar px-12 py-10 max-w-5xl mx-auto">
+                <div className="flex items-center justify-between mb-8">
+                    <div>
+                        <button
+                            onClick={() => onSelectJob(null)}
+                            className="flex items-center gap-2 text-slate-400 hover:text-slate-600 text-xs font-bold transition-all mb-2"
+                        >
+                            <ArrowLeft size={14} /> 공고 선택으로 돌아가기
+                        </button>
+                        <h1 className="text-2xl font-black text-slate-900 flex items-center gap-3">
+                            [{companyName}] {jobTitle}
+                            <span className="px-3 py-1 bg-blue-50 text-blue-600 text-xs rounded-lg">전체 {drafts.length}개</span>
+                        </h1>
+                    </div>
+                    <div className="flex items-center gap-5">
+                        <button
+                            onClick={handleSave}
+                            className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl text-sm font-bold hover:bg-slate-800 transition-all shadow-lg shadow-slate-900/20"
+                        >
+                            <Download size={18} /> 전체 변경사항 저장
+                        </button>
+                        <button
+                            onClick={handleAddDraft}
+                            className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-2xl text-sm font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20"
+                        >
+                            <PlusCircle size={18} /> 새 자기소개서 추가
+                        </button>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    {drafts.map((draft) => (
+                        <div
+                            key={draft.id}
+                            className={`group bg-white rounded-3xl border-2 p-6 transition-all hover:shadow-xl hover:shadow-slate-200/50 ${activeDraftId === draft.id ? 'border-blue-500 ring-4 ring-blue-50' : 'border-slate-100 hover:border-blue-200'}`}
+                        >
+                            <div className="flex items-center justify-between mb-4">
+                                    <div className="flex flex-col">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm font-black text-slate-900">{draft.name}</span>
+                                            {draft.isFinal && <Star size={14} className="fill-yellow-400 text-yellow-400" />}
+                                        </div>
+                                        <div className="flex items-center gap-1.5 mt-0.5">
+                                            <div className={`w-1.5 h-1.5 rounded-full ${getStatusInfo(draft.status).color}`}></div>
+                                            <span className="text-[10px] text-slate-400 font-medium">최종 수정: {formatRelativeTime(draft.updatedAt)}</span>
+                                        </div>
+                                    </div>
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                    <button onClick={(e) => handleDuplicateDraft(e, draft.id)} className="p-2 hover:bg-slate-50 text-slate-400 rounded-lg transition-all" title="복제"><Copy size={16} /></button>
+                                    <button onClick={(e) => handleDeleteDraft(e, draft.id)} className="p-2 hover:bg-red-50 text-red-400 rounded-lg transition-all" title="삭제"><Trash2 size={16} /></button>
+                                </div>
+                            </div>
+
+                            <div className="space-y-4 mb-6">
+                                <div className="flex items-center justify-between text-xs">
+                                    <span className="text-slate-400 font-black uppercase tracking-wider">진행 상태</span>
+                                    <div className="relative">
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setOpenStatusId(openStatusId === draft.id ? null : draft.id);
+                                            }}
+                                            className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-white hover:border-blue-400 transition-all group/status"
+                                        >
+                                            <div className={`w-2 h-2 rounded-full shadow-sm ${getStatusInfo(draft.status || '작성전').color}`}></div>
+                                            <span className="text-[11px] font-black text-slate-700">{draft.status || '작성전'}</span>
+                                            <ChevronDown size={12} className={`text-slate-400 transition-transform ${openStatusId === draft.id ? 'rotate-180' : ''}`} />
+                                        </button>
+
+                                        <AnimatePresence>
+                                            {openStatusId === draft.id && (
+                                                <>
+                                                    <div
+                                                        className="fixed inset-0 z-10"
+                                                        onClick={() => setOpenStatusId(null)}
+                                                    ></div>
+                                                    <motion.div
+                                                        initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                                                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                                                        exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                                                        className="absolute right-0 top-full mt-2 w-32 bg-white rounded-2xl border border-slate-100 shadow-2xl shadow-slate-200/50 p-1.5 z-20"
+                                                    >
+                                                        {['작성전', '작성중', '작성 완료', '지원 완료'].map((s) => (
+                                                            <button
+                                                                key={s}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleUpdateStatus(draft.id, s);
+                                                                    setOpenStatusId(null);
+                                                                }}
+                                                                className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-black transition-all hover:bg-slate-50 ${draft.status === s ? 'bg-slate-50' : ''}`}
+                                                            >
+                                                                <div className={`w-1.5 h-1.5 rounded-full ${getStatusInfo(s).color}`}></div>
+                                                                <span className={getStatusColor(s)}>{s}</span>
+                                                            </button>
+                                                        ))}
+                                                    </motion.div>
+                                                </>
+                                            )}
+                                        </AnimatePresence>
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-between text-xs">
+                                    <span className="text-slate-400 font-bold">문항 수</span>
+                                    <span className="text-slate-900 font-black">{draft.tabs?.length || 0}개</span>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={() => {
+                                    // 작성전 -> 작성중 자동 전환 (즉시 상태 업데이트)
+                                    if (draft.status === '작성전') {
+                                        setDrafts(prev => prev.map(d => d.id === draft.id ? { ...d, status: '작성중' } : d));
+                                        toast.success("상태가 '작성중'으로 변경되었습니다.");
+                                    }
+                                    setActiveDraftId(draft.id);
+                                    setIsWorkspaceOpen(true);
+                                    setActiveTab(0);
+                                }}
+                                className="w-full py-3 bg-slate-50 text-slate-900 text-sm font-black rounded-2xl hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center gap-2"
+                            >
+                                자기소개서 작성하기 <ChevronRight size={16} />
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    // [3단계] 워크스페이스 (실제 편집 화면)
     return (
         <div className="flex h-full overflow-hidden bg-white">
             <div className="flex-1 flex flex-col min-w-0 border-r border-slate-200">
                 {/* Workspace Header */}
                 <div className="px-8 pt-6 pb-2">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-xs font-medium text-slate-400 mb-2">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
                             <button
-                                onClick={() => {
-                                    setCompanyReportData(null);
-                                    onSelectJob(null);
-                                }}
-                                className="flex items-center gap-1 px-1.5 py-1 hover:bg-slate-100 rounded-md text-slate-500 hover:text-slate-900 transition-all mr-1"
-                                title="공고 선택으로 돌아가기"
+                                onClick={() => setIsWorkspaceOpen(false)}
+                                className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 text-slate-500 rounded-xl text-xs font-bold hover:bg-slate-900 hover:text-white transition-all"
                             >
-                                <ArrowLeft size={14} />
+                                <ArrowLeft size={14} /> 목록으로
                             </button>
-                            <span>{selectedJob?.회사명 || '지원 기업'}</span>
-                            <ChevronRight size={12} />
-                            <span>{selectedJob?.모집부문 || selectedJob?.모집직무 || '지원 직무'}</span>
-                            <ChevronRight size={12} />
-                            <span className="text-blue-600">자기소개서 작성</span>
+                            <div className="h-6 w-[1px] bg-slate-200 mx-1"></div>
+                            <div className="flex items-center gap-2">
+                                <h2 className="text-lg font-black text-slate-900">{currentDraft.name}</h2>
+                                <div className="flex items-center gap-1.5 ml-3 px-3 py-1 bg-slate-50 border border-slate-200 rounded-full">
+                                    <div className={`w-2 h-2 rounded-full shadow-sm ${getStatusInfo(currentDraft.status || '작성전').color}`}></div>
+                                    <span className="text-[11px] font-black text-slate-700">
+                                        {currentDraft.status || '작성전'}
+                                    </span>
+                                </div>
+                            </div>
                         </div>
                         <div className="flex items-center gap-2">
                             <button
                                 onClick={handleSave}
-                                className="flex items-center gap-2 px-4 py-1.5 bg-slate-900 text-white rounded-lg text-xs font-bold hover:bg-slate-800 transition-all"
+                                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-black shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all"
                             >
-                                <Download size={16} /> 전체 저장
+                                <Save size={16} /> 저장하기
                             </button>
                             <button
-                                onClick={handleOpenCompanyReport}
-                                className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                                onClick={() => handleOpenCompanyReport()}
+                                className="flex items-center gap-2 px-4 py-2 rounded-xl border-2 border-slate-100 bg-white text-xs font-black text-slate-700 hover:border-blue-200 transition-all"
                             >
-                                <BarChart3 size={16} /> 기업 분석 리포트
+                                <BarChart3 size={16} /> 기업 분석
                             </button>
                         </div>
-                    </div>
-
-                    {/* Draft Management Layer */}
-                    <div className="flex items-center gap-3 mt-4 mb-2 overflow-x-auto pb-2 custom-scrollbar no-scrollbar">
-                        {drafts.map((draft) => (
-                            <div 
-                                key={draft.id}
-                                onClick={() => {
-                                    setActiveDraftId(draft.id);
-                                    setActiveTab(0);
-                                }}
-                                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${activeDraftId === draft.id ? 'bg-slate-900 text-white border-slate-900 shadow-md' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'}`}
-                            >
-                                <span onDoubleClick={() => handleRenameDraft(draft.id)}>{draft.name}</span>
-                                {draft.isFinal && <Star size={12} className="fill-yellow-400 text-yellow-400" />}
-                                
-                                <div className="flex items-center gap-1 ml-1 pl-2 border-l border-slate-700/30">
-                                    <button onClick={(e) => handleDuplicateDraft(e, draft.id)} title="복제" className="hover:text-blue-400 p-0.5"><Copy size={12} /></button>
-                                    {!draft.isFinal && <button onClick={(e) => handleSetFinal(e, draft.id)} title="베스트 지정" className="hover:text-yellow-400 p-0.5"><Star size={12} /></button>}
-                                    {drafts.length > 1 && <button onClick={(e) => handleDeleteDraft(e, draft.id)} title="삭제" className="hover:text-red-400 p-0.5"><Trash2 size={12} /></button>}
-                                </div>
-                            </div>
-                        ))}
-                        <button 
-                            onClick={handleAddDraft}
-                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-dashed border-slate-300 text-slate-400 text-xs font-bold hover:bg-slate-50 hover:border-slate-400 transition-all shrink-0"
-                        >
-                            <PlusCircle size={14} /> 새 초안 추가
-                        </button>
-                    </div>
-
-                    <div className="flex items-center justify-between mt-1">
-                        <h1 className="text-2xl font-bold text-slate-900">자기소개서 작성 워크스페이스</h1>
-                        {!isGuideOpen && (
-                            <button
-                                onClick={() => setIsGuideOpen(true)}
-                                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition-all shadow-md shadow-blue-600/20"
-                            >
-                                <Brain size={16} /> AI 가이드 열기
-                            </button>
-                        )}
                     </div>
                     <div className="flex items-center gap-4 mt-6 border-b border-slate-100">
                         <div className="flex gap-6">
@@ -893,11 +1056,20 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
                                 <button
                                     key={i}
                                     onClick={() => setActiveTab(i)}
-                                    className={`group relative pb-3 text-sm font-bold transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === i ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+                                    className={`group relative pb-3 text-sm font-bold transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === i ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
                                 >
-                                    <span className="max-w-[120px] truncate">{tab}</span>
+                                    <div className="relative">
+                                        <span className="max-w-[120px] truncate block">{tab}</span>
+                                        {activeTab === i && (
+                                            <motion.div
+                                                layoutId="tabUnderline"
+                                                className="absolute -bottom-[1.5px] left-0 right-0 h-0.5 bg-blue-600"
+                                                transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                                            />
+                                        )}
+                                    </div>
                                     {tabs.length > 1 && (
-                                        <span 
+                                        <span
                                             onClick={(e) => handleDeleteTab(e, i)}
                                             className="p-0.5 rounded-md hover:bg-slate-100 text-slate-400 opacity-0 group-hover:opacity-100 transition-all hover:text-red-500"
                                             title="삭제"
@@ -928,7 +1100,7 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
                                         <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
                                         <span className="text-sm font-bold text-slate-700">문항 상세 내용 편집</span>
                                     </div>
-                                    <button 
+                                    <button
                                         onClick={() => setIsEditingQuestion(false)}
                                         className="px-4 py-1.5 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-blue-600 transition-all shadow-sm"
                                     >
@@ -949,14 +1121,14 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
                                 <div className="absolute -top-3 -right-2 flex items-center gap-1.5 text-[10px] font-black tracking-wide text-blue-600 bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-full border border-blue-100 shadow-sm opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-1 group-hover:translate-y-0 z-10">
                                     <Edit3 size={12} strokeWidth={3} /> 클릭하여 수정
                                 </div>
-                                
+
                                 <div className="flex items-start gap-4">
                                     <div className="w-1.5 min-h-[40px] rounded-full bg-gradient-to-b from-blue-400 to-indigo-400 shrink-0"></div>
                                     <div className="flex-1 relative">
                                         <p className="text-slate-800 font-extrabold text-[15px] leading-relaxed tracking-tight break-keep pt-1.5">
                                             {currentQuestionDetail || <span className="text-slate-400 font-medium italic">문항 내용을 입력해 주세요. (클릭하여 작성)</span>}
                                         </p>
-                                        
+
                                         {/* Example Tooltip - appears on hover when empty */}
                                         {!currentQuestionDetail && (
                                             <div className="absolute left-0 top-full mt-3 w-[340px] bg-white rounded-2xl border border-slate-200 shadow-xl shadow-slate-200/50 p-4 opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-300 translate-y-2 group-hover:translate-y-0 z-20">
@@ -997,37 +1169,109 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
                             <div className="flex items-center gap-3 overflow-hidden">
                                 <h3 className="text-slate-900 font-bold text-sm shrink-0">작성 내용</h3>
                             </div>
-                            
-                            <div className="flex items-center gap-2 shrink-0">
-                                <div className="flex items-center gap-1.5 px-2 py-1 bg-white rounded-lg border border-slate-200 shadow-sm">
-                                    <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">글자수</span>
-                                    <span className={`text-xs font-bold transition-colors ${(contents[activeTab] || '').length > ((currentDraft.charLimits || [])[activeTab] || 700) ? 'text-red-500' : 'text-slate-900'}`}>
-                                        {(contents[activeTab] || '').length}
-                                    </span> 
-                                    <span className="text-[10px] text-slate-300">/</span>
-                                    <input 
-                                        type="number"
-                                        min="100"
-                                        max="5000"
-                                        step="100"
-                                        className="w-14 text-xs font-bold text-slate-500 bg-transparent focus:outline-none focus:text-blue-600 border-none hover:bg-slate-50 focus:bg-white rounded px-1 transition-all text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none cursor-text"
-                                        value={(currentDraft.charLimits || [])[activeTab] === 0 ? '' : ((currentDraft.charLimits || [])[activeTab] || 700)}
-                                        onChange={(e) => {
-                                            const val = parseInt(e.target.value);
-                                            const newLimits = [...(currentDraft.charLimits || [])];
-                                            newLimits[activeTab] = isNaN(val) ? 0 : val;
-                                            setDrafts(drafts.map(d => d.id === activeDraftId ? { ...d, charLimits: newLimits } : d));
-                                        }}
-                                        onBlur={(e) => {
-                                            const val = parseInt(e.target.value);
-                                            if (isNaN(val) || val <= 0) {
-                                                const newLimits = [...(currentDraft.charLimits || [])];
-                                                newLimits[activeTab] = 700; // Restore to default if left empty or 0
-                                                setDrafts(drafts.map(d => d.id === activeDraftId ? { ...d, charLimits: newLimits } : d));
-                                            }
-                                        }}
-                                        title="글자수 제한 직접 수정"
-                                    />
+
+                            <div className="flex items-center gap-0 shrink-0 bg-white border border-slate-200 rounded-xl px-2 py-1 shadow-sm relative">
+                                {/* 현재 글자수 표시 */}
+                                <div className="flex items-center gap-0 px-1">
+                                    <span className={`text-xs font-black transition-colors ${((contents[activeTab] || '').length > ((currentDraft.charLimits || [])[activeTab] || 700)) ? 'text-red-600' : 'text-slate-900'}`}>
+                                        {(contents[activeTab] || '').length.toLocaleString()}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 font-bold ml-0.5">자</span>
+                                </div>
+
+                                <div className="text-slate-300 text-[10px] font-bold mx-0">/</div>
+
+                                {/* 목표 글자수 표시 (클릭 시 팝오버) */}
+                                <div 
+                                    className="flex items-center gap-0 px-1 transition-all rounded-lg relative cursor-pointer"
+                                    onClick={() => {
+                                        setTempCharLimit(((currentDraft.charLimits || [])[activeTab] || 700).toString());
+                                        setShowCharLimitPopover(!showCharLimitPopover);
+                                    }}
+                                >
+                                    <span className="text-xs font-black text-slate-400">
+                                        {((currentDraft.charLimits || [])[activeTab] || 700).toLocaleString()}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 font-bold ml-0.5">자</span>
+
+                                    {/* 5번 아이디어: 인라인 팝오버 */}
+                                    <AnimatePresence>
+                                        {showCharLimitPopover && (
+                                            <>
+                                                <div 
+                                                    className="fixed inset-0 z-30" 
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setShowCharLimitPopover(false);
+                                                    }}
+                                                />
+                                                <motion.div 
+                                                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                                                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    className="absolute right-0 top-full mt-2 w-48 bg-white rounded-2xl border border-slate-200 shadow-2xl p-4 z-40"
+                                                >
+                                                    <div className="flex flex-col gap-3">
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider">글자수 제한</span>
+                                                            <Settings size={12} className="text-slate-300" />
+                                                        </div>
+                                                        <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-100 focus-within:border-blue-400 transition-all">
+                                                            <input 
+                                                                type="number"
+                                                                className="flex-1 bg-transparent text-sm font-black text-blue-600 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                                value={tempCharLimit}
+                                                                autoFocus
+                                                                onChange={(e) => setTempCharLimit(e.target.value)}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter') {
+                                                                        const val = parseInt(tempCharLimit);
+                                                                        const newLimits = [...(currentDraft.charLimits || [])];
+                                                                        newLimits[activeTab] = isNaN(val) || val < 0 ? 700 : val;
+                                                                        setDrafts(drafts.map(d => d.id === activeDraftId ? { ...d, charLimits: newLimits } : d));
+                                                                        setShowCharLimitPopover(false);
+                                                                        toast.success(`글자수 제한이 ${newLimits[activeTab]}자로 설정되었습니다.`);
+                                                                    }
+                                                                }}
+                                                            />
+                                                            <span className="text-[10px] text-slate-400 font-bold">자</span>
+                                                        </div>
+                                                        
+                                                        {/* 0자~2000자 슬라이더 조절 기능 */}
+                                                        <div className="px-1 py-1">
+                                                            <input 
+                                                                type="range"
+                                                                min="0"
+                                                                max="2000"
+                                                                step="100"
+                                                                className="w-full h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                                                value={isNaN(parseInt(tempCharLimit)) ? 0 : parseInt(tempCharLimit)}
+                                                                onChange={(e) => setTempCharLimit(e.target.value)}
+                                                            />
+                                                            <div className="flex justify-between mt-1 px-0.5">
+                                                                <span className="text-[8px] text-slate-300 font-bold uppercase tracking-tighter">0자</span>
+                                                                <span className="text-[8px] text-slate-300 font-bold uppercase tracking-tighter">2000자</span>
+                                                            </div>
+                                                        </div>
+                                                        <button 
+                                                            onClick={() => {
+                                                                const val = parseInt(tempCharLimit);
+                                                                const newLimits = [...(currentDraft.charLimits || [])];
+                                                                newLimits[activeTab] = isNaN(val) || val <= 0 ? 700 : val;
+                                                                setDrafts(drafts.map(d => d.id === activeDraftId ? { ...d, charLimits: newLimits } : d));
+                                                                setShowCharLimitPopover(false);
+                                                                toast.success(`목표 글자수가 ${newLimits[activeTab]}자로 변경되었습니다.`);
+                                                            }}
+                                                            className="w-full py-2 bg-blue-600 text-white rounded-xl text-[11px] font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20"
+                                                        >
+                                                            적용하기
+                                                        </button>
+                                                    </div>
+                                                </motion.div>
+                                            </>
+                                        )}
+                                    </AnimatePresence>
                                 </div>
                             </div>
                         </div>
@@ -1121,7 +1365,8 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
                 <div className="flex flex-col h-full bg-white w-[420px]">
                     <div className="p-6 border-b border-slate-100 flex items-center justify-between">
                         <h3 className="text-slate-900 font-bold text-base flex items-center gap-2">
-                            <HelpCircle className="text-blue-600 fill-blue-600/10" size={20} /> AI 작성 가이드
+                            <HelpCircle className="text-slate-400 fill-slate-400/10" size={20} /> AI 작성 가이드
+                            <span className="ml-2 px-2 py-0.5 bg-slate-100 text-slate-400 text-[10px] rounded-md font-black italic">DISABLED</span>
                         </h3>
                         <button
                             onClick={() => setIsGuideOpen(false)}
@@ -1131,8 +1376,18 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
                         </button>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
-                        <div>
+                    <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar relative">
+                        {/* Disabled Overlay */}
+                        <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] z-50 flex flex-col items-center justify-center p-12 text-center">
+                            <div className="w-16 h-16 bg-slate-100 rounded-3xl flex items-center justify-center mb-4">
+                                <ShieldAlert size={32} className="text-slate-400" />
+                            </div>
+                            <h4 className="text-slate-900 font-black text-lg mb-2">기능 비활성화</h4>
+                            <p className="text-slate-500 text-sm leading-relaxed mb-6">사용자 요청에 따라 AI 작성 가이드 기능이<br />현재 비활성화된 상태입니다.</p>
+                            <div className="px-4 py-2 bg-slate-900 text-white text-[10px] font-black rounded-full tracking-widest uppercase">Unavailable</div>
+                        </div>
+
+                        <div className="opacity-40 grayscale pointer-events-none">
                             <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">문항 분석</h4>
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
@@ -1150,7 +1405,7 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
                             </div>
                         </div>
 
-                        <div>
+                        <div className="opacity-40 grayscale pointer-events-none">
                             <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">AI 작성 전략 (JD 기반)</h4>
                             <div className="space-y-3">
                                 {currentStrategies.map((strategy, idx) => (
@@ -1219,11 +1474,7 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
                                                                 {item.키워드}
                                                             </div>
                                                             <p className="text-xs text-slate-600 leading-relaxed">{item.내용}</p>
-                                                            {item.출처 && (
-                                                                <a href={item.출처} target="_blank" rel="noreferrer" className="text-[10px] text-blue-500 hover:underline mt-2 flex items-center gap-1">
-                                                                    <ExternalLink size={10} /> 출처
-                                                                </a>
-                                                            )}
+
                                                         </div>
                                                     ))}
                                                 </div>
@@ -1244,11 +1495,7 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
                                                                 {item.키워드}
                                                             </div>
                                                             <p className="text-xs text-slate-600 leading-relaxed">{item.내용}</p>
-                                                            {item.출처 && (
-                                                                <a href={item.출처} target="_blank" rel="noreferrer" className="text-[10px] text-blue-500 hover:underline mt-2 flex items-center gap-1">
-                                                                    <ExternalLink size={10} /> 출처
-                                                                </a>
-                                                            )}
+
                                                         </div>
                                                     ))}
                                                 </div>
@@ -1259,7 +1506,7 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
                                         {Array.isArray(companyReportData.news) && companyReportData.news.length > 0 && (
                                             <div>
                                                 <h4 className="text-sm font-black text-slate-900 flex items-center gap-2 mb-4">
-                                                    <Newspaper size={18} className="text-slate-600" /> 관련 최신 뉴스
+                                                    <Newspaper size={18} className="text-slate-600" /> 기업 최신 뉴스
                                                 </h4>
                                                 <div className="space-y-3">
                                                     {companyReportData.news.map((news: any, idx: number) => (
@@ -1267,7 +1514,7 @@ function WorkspaceView({ selectedJob, onSelectJob }: { selectedJob?: any, onSele
                                                             key={idx}
                                                             href={news.url}
                                                             target="_blank"
-                                                            rel="noreferrer"
+                                                            rel="noopener noreferrer"
                                                             className="flex items-start justify-between gap-3 p-4 bg-white border border-slate-100 rounded-xl hover:border-blue-400 hover:shadow-sm transition-all group"
                                                         >
                                                             <div className="flex-1 min-w-0">
@@ -1420,7 +1667,7 @@ function ExperienceBankView() {
                 <div className="space-y-12">
                     <div className="bg-white rounded-3xl border border-slate-200 shadow-xl shadow-slate-200/40 p-10 relative overflow-hidden group">
                         <div className="absolute top-0 right-0 w-48 h-48 bg-blue-50 rounded-full -mr-24 -mt-24 transition-transform group-hover:scale-110 duration-700"></div>
-                        
+
                         <div className="relative z-10">
                             <div className="flex items-center justify-between mb-8">
                                 <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
@@ -1433,27 +1680,27 @@ function ExperienceBankView() {
                                     업로드 현황 <span className="text-blue-600">{uploadedCount}/2</span>
                                 </div>
                             </div>
-                            
+
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                 <div className="group/card">
-                                    <DocumentUploadCard 
-                                        type="RESUME" 
-                                        title="경력기술서 / 이력서" 
-                                        documents={documents} 
-                                        handleUpload={handleUpload} 
-                                        handleDelete={handleDelete} 
-                                        uploadingType={uploadingType} 
+                                    <DocumentUploadCard
+                                        type="RESUME"
+                                        title="경력기술서 / 이력서"
+                                        documents={documents}
+                                        handleUpload={handleUpload}
+                                        handleDelete={handleDelete}
+                                        uploadingType={uploadingType}
                                     />
                                     <p className="mt-3 text-xs text-slate-400 font-medium px-2 italic">PDF, 이미지 형식이 가장 분석 품질이 좋습니다.</p>
                                 </div>
                                 <div className="group/card">
-                                    <DocumentUploadCard 
-                                        type="PORTFOLIO" 
-                                        title="포트폴리오 / 기획서" 
-                                        documents={documents} 
-                                        handleUpload={handleUpload} 
-                                        handleDelete={handleDelete} 
-                                        uploadingType={uploadingType} 
+                                    <DocumentUploadCard
+                                        type="PORTFOLIO"
+                                        title="포트폴리오 / 기획서"
+                                        documents={documents}
+                                        handleUpload={handleUpload}
+                                        handleDelete={handleDelete}
+                                        uploadingType={uploadingType}
                                     />
                                     <p className="mt-3 text-xs text-slate-400 font-medium px-2 italic">성과 위주의 포트폴리오 분석을 권장합니다.</p>
                                 </div>
@@ -1469,7 +1716,7 @@ function ExperienceBankView() {
                                         <><Loader2 size={32} className="animate-spin" /> <span>심층 역량 추출 중...</span></>
                                     ) : (
                                         <>
-                                            <Brain size={32} className="text-blue-400" /> 
+                                            <Brain size={32} className="text-blue-400" />
                                             <span>AI 통합 경험 분석</span>
                                             <ArrowRight size={24} className="group-hover:translate-x-2 transition-transform" />
                                         </>

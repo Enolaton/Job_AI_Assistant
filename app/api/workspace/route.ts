@@ -61,7 +61,9 @@ export async function GET(req: NextRequest) {
             tabs: si.items.map(item => item.question),
             questions: si.items.map(item => item.aiGuide || ''),
             contents: si.items.map(item => item.answer || ''),
-            charLimits: si.items.map(item => (item as any).charLimit || 700)
+            charLimits: si.items.map(item => (item as any).charLimit || 700),
+            status: si.status || '작성전',
+            updatedAt: si.updatedAt
         }));
 
         return NextResponse.json({ drafts: formattedDrafts, roleId: role.id });
@@ -129,6 +131,7 @@ export async function POST(req: NextRequest) {
                         title: draft.name,
                         name: draft.name,
                         isFinal: draft.isFinal || false,
+                        status: draft.status || '작성전',
                     }
                 });
 
@@ -149,8 +152,11 @@ export async function POST(req: NextRequest) {
         });
 
         return NextResponse.json({ success: true });
-    } catch (error) {
-        console.error('Workspace Save Error:', error);
-        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    } catch (error: any) {
+        console.error('Workspace Save Error Details:', {
+            message: error.message,
+            stack: error.stack
+        });
+        return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
     }
 }
