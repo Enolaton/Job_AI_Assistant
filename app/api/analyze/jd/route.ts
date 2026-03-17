@@ -82,7 +82,12 @@ export async function POST(req: NextRequest) {
                     const { raw_text, structured } = parsedData;
 
                     // --- 3. 클라우드 DB에 결과 저장 (Prisma 활용) ---
-                    const companyName = structured[0]?.["회사명"] || "알수없음";
+                    // 기업명 정제 로직 (주식회사, (주), ㈜ 등 법인 접사 및 변칙 공백 제거)
+                    const cleanName = (name: string) => {
+                        return name.replace(/\( ?주 ?\)|주식회사|㈜|\( ?유 ?\)|유한회사|\( ?사 ?\)|사단법인|\( ?재 ?\)|재단법인|\( ?의 ?\)|의료법인/g, '').trim();
+                    };
+                    const rawCompanyName = structured[0]?.["회사명"] || "알수없음";
+                    const companyName = cleanName(rawCompanyName);
 
                     // Transaction을 사용하여 JobAnalysis와 JobRoles를 함께 저장
                     const newAnalysis = await (prisma as any).$transaction(async (tx: any) => {

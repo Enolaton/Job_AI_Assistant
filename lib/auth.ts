@@ -12,10 +12,10 @@ const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 // each getting their own `global`, which causes constant LAUNCH_ID mismatches and session drops.
 const globalForAuth = global as unknown as { launchId: string };
 if (!globalForAuth.launchId) {
-    globalForAuth.launchId = IS_PRODUCTION
-        ? crypto.randomBytes(16).toString('hex')
-        : 'dev-stable';
-    console.log(`🚀 [Auth] Launch ID: ${globalForAuth.launchId} (${IS_PRODUCTION ? 'production' : 'development'})`);
+    // [보안] 서버 실행 시마다 고유한 ID를 생성합니다. 
+    // 이를 통해 서버가 재시작되면 기존 브라우저의 세션 쿠키를 무효화(Invalidate) 처리합니다.
+    globalForAuth.launchId = crypto.randomBytes(16).toString('hex');
+    console.log(`🚀 [Auth] Launch ID 생성: ${globalForAuth.launchId} (${IS_PRODUCTION ? '운영' : '개발'})`);
 }
 const LAUNCH_ID = globalForAuth.launchId;
 
@@ -63,10 +63,11 @@ export const authOptions: NextAuthOptions = {
                 token.launchId = LAUNCH_ID;
             }
             
-            // Only enforce LAUNCH_ID check in production
-            if (IS_PRODUCTION && token.launchId && token.launchId !== LAUNCH_ID) {
-                console.log(`⚠️ [Auth] Session invalidated: Token ID (${token.launchId}) != Server ID (${LAUNCH_ID})`);
-                return {};
+            // Session invalidation logic via LAUNCH_ID check
+            // If the server has restarted (new LAUNCH_ID), we invalidate old tokens.
+            if (token.launchId && token.launchId !== LAUNCH_ID) {
+                console.log(`⚠️ [Auth] Session invalidated: Token ID mismatch (${token.launchId} != ${LAUNCH_ID})`);
+                return null as any; 
             }
             
             return token;
