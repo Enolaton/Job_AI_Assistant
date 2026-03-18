@@ -2,10 +2,12 @@ import sys
 import os
 import json
 import time
-import requests # 네이버 뉴스 API 호출을 위한 라이브러리 추가
-from dotenv import load_dotenv # 환경 변수 로드
-from google import genai
-from google.genai import types
+import requests # type: ignore # 네이버 뉴스 API 호출을 위한 라이브러리 추가
+from email.utils import parsedate_to_datetime # RFC 822 날짜 파싱 용도
+from datetime import datetime
+from dotenv import load_dotenv # type: ignore # 환경 변수 로드
+from google import genai # type: ignore
+from google.genai import types # type: ignore
 
 # 환경 변수(Environment Variables) 로딩
 load_dotenv()
@@ -56,15 +58,27 @@ class CompanyService:
                         if item['link'] not in seen_urls and "news.naver.com" in item['link']:
                             title = item['title'].replace("<b>", "").replace("</b>", "").replace("&quot;", "\"")
                             description = item['description'].replace("<b>", "").replace("</b>", "").replace("&quot;", "\"")
+                            # 날짜 형식 변환 (Convert Date Format): 'Wed, 18 Mar 2026...' -> '2026년 03월 18일'
+                            pub_date = item.get('pubDate', '')
+                            try:
+                                dt = parsedate_to_datetime(pub_date)
+                                # 파싱 결과가 None이 아닌지 확인하여 안정성 강화 (Safety Check)
+                                if dt:
+                                    formatted_date = dt.strftime("%Y년 %m월 %d일")
+                                else:
+                                    formatted_date = pub_date
+                            except:
+                                formatted_date = pub_date # 파싱 실패 시 원본 유지 (Keep Original if Failed)
+
                             all_news_items.append({
                                 "title": title, "description": description,
-                                "url": item['link'], "pub_date": item['pubDate']
+                                "url": item['link'], "pub_date": formatted_date
                             })
                             seen_urls.add(item['link'])
             except Exception as e:
                 sys.stderr.write(f"\n[Naver API Error] {str(e)}\n")
 
-        return all_news_items[:5]
+        return all_news_items[:5] # type: ignore
 
     def get_company_analysis(self, company_name, job_title):
         """기업의 인재상(Ideal Candidate) 및 조직문화(Culture)를 개별 키워드 중심으로 심층 분석합니다."""
