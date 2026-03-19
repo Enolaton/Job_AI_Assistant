@@ -82,6 +82,8 @@ model SelfIntroduction {
   name        String?         // Draft name (e.g., "초안 1")
   isFinal     Boolean         @default(false) @map("is_final")
   status      String          @default("작성전") @map("status")
+  manualCompanyName String?   @map("manual_company_name")
+  manualJobTitle    String?   @map("manual_job_title")
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
   items       SelfIntroItem[]

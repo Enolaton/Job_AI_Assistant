@@ -82,23 +82,21 @@ export async function POST(req: NextRequest) {
         const newsResult = await runPython(serviceScriptPath, [companyName, jobTitle || '', 'news']);
         const realTimeNews = newsResult.news || [];
 
-        // --- 2. 기업 분석 데이터 처리 (Analysis Data: DB Cache) ---
+        // --- 2. 기업 분석 데이터 처리 (Analysis Data: DB Cache Priority) ---
         let finalAnalysis = null;
 
-        if (!forceRefresh) {
-            const existingReport = await (prisma as any).companyReport.findUnique({
-                where: {
-                    userId_companyName: {
-                        userId: user.id,
-                        companyName: companyName
-                    }
+        const existingReport = await (prisma as any).companyReport.findUnique({
+            where: {
+                userId_companyName: {
+                    userId: user.id,
+                    companyName: companyName
                 }
-            });
-
-            if (existingReport && existingReport.reportData?.analysis) {
-                console.log(`💡 [CACHE HIT] '${companyName}' 기업 분석 정보를 DB에서 추출했습니다.`);
-                finalAnalysis = existingReport.reportData.analysis;
             }
+        });
+
+        if (existingReport && existingReport.reportData?.analysis) {
+            console.log(`💡 [CACHE HIT] '${companyName}' 기업 분석 정보를 DB에서 추출했습니다. (정적 데이터 유지)`);
+            finalAnalysis = existingReport.reportData.analysis;
         }
 
         if (!finalAnalysis) {
