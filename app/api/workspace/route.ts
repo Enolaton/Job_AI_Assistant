@@ -5,7 +5,7 @@ import { authOptions } from '@/lib/auth';
 
 const prisma = new PrismaClient();
 
-// GET: 특정 직무에 대한 자기소개서 초안 리스트 불러오기
+// GET: 자기소개서 목록 또는 상세 데이터 불러오기
 export async function GET(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
@@ -13,67 +13,71 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        const url = new URL(req.url);
-        const roleTitle = url.searchParams.get('roleTitle');
-        const companyName = url.searchParams.get('companyName');
-
-        if (!roleTitle || !companyName) {
-            return NextResponse.json({ error: 'Missing parameters' }, { status: 400 });
-        }
-
-        // 1. 유저 확인
         const user = await prisma.user.findUnique({
             where: { email: session.user.email },
         });
-
         if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
-        // 2. 직무(Role) 찾기 (공고 분석 결과 기반)
-        const role = await (prisma as any).jobRole.findFirst({
-            where: {
-                roleTitle: roleTitle,
-                jobAnalysis: {
-                    companyName: companyName,
-                    userId: user.id
-                }
-            },
-            include: {
-                selfIntroductions: {
-                    include: {
-                        items: {
-                            orderBy: { orderIndex: 'asc' }
-                        }
-                    },
-                    orderBy: { createdAt: 'asc' }
-                }
-            }
-        });
+        const url = new URL(req.url);
+        const id = url.searchParams.get('id');
 
-        if (!role) {
-            return NextResponse.json({ drafts: [] });
+        // 특정 ID가 있는 경우 상세 조회
+        if (id) {
+            const si = await (prisma as any).selfIntroduction.findUnique({
+                where: { id: parseInt(id) },
+                include: {
+                    items: { orderBy: { orderIndex: 'asc' } },
+                    jobAnalysis: true,
+                    jobRole: true
+                }
+            });
+            if (!si || si.userId !== user.id) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+            return NextResponse.json({
+                draft: {
+                    id: String(si.id),
+                    name: si.title,
+                    status: si.status,
+                    companyName: si.jobAnalysis?.companyName || si.manualCompanyName || '',
+                    jobTitle: si.jobRole?.roleTitle || si.manualJobTitle || '',
+                    analysisId: si.analysisId,
+                    roleId: si.roleId,
+                    updatedAt: si.updatedAt,
+                    tabs: si.items.map((it: any) => it.question),
+                    questions: si.items.map((it: any) => it.aiGuide || ''),
+                    contents: si.items.map((it: any) => it.answer || ''),
+                    charLimits: si.items.map((it: any) => it.charLimit || 700)
+                }
+            });
         }
 
-        // 3. 프론트엔드 형식으로 변환
-        const formattedDrafts = role.selfIntroductions.map(si => ({
+        // 전체 목록 조회 (Drive View용)
+        const documents = await (prisma as any).selfIntroduction.findMany({
+            where: { userId: user.id },
+            include: {
+                jobAnalysis: true,
+                jobRole: true
+            },
+            orderBy: { updatedAt: 'desc' }
+        });
+
+        const formattedDocs = documents.map((si: any) => ({
             id: String(si.id),
-            name: si.name || si.title,
-            isFinal: si.isFinal,
-            tabs: si.items.map(item => item.question),
-            questions: si.items.map(item => item.aiGuide || ''),
-            contents: si.items.map(item => item.answer || ''),
-            charLimits: si.items.map(item => (item as any).charLimit || 700),
-            status: si.status || '작성전',
-            updatedAt: si.updatedAt
+            title: si.title,
+            company: si.jobAnalysis?.companyName || si.manualCompanyName || '미지정',
+            job: si.jobRole?.roleTitle || si.manualJobTitle || '직무 미지정',
+            status: si.status,
+            lastModified: si.updatedAt
         }));
 
-        return NextResponse.json({ drafts: formattedDrafts, roleId: role.id });
+        return NextResponse.json({ documents: formattedDocs });
     } catch (error) {
-        console.error('Workspace Load Error:', error);
+        console.error('Workspace API Load Error:', error);
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
 }
 
-// POST: 자기소개서 초안 리스트 저장하기 (Upsert)
+// POST: 단일 자기소개서 저장/생성 (Drive 중심)
 export async function POST(req: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
@@ -81,82 +85,69 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        const { drafts, roleTitle, companyName } = await req.json();
-
         const user = await prisma.user.findUnique({
             where: { email: session.user.email },
         });
-
         if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
-        // 1. 해당 직무(Role) 찾기 또는 생성
-        let role = await (prisma as any).jobRole.findFirst({
-            where: {
-                roleTitle: roleTitle,
-                jobAnalysis: {
-                    companyName: companyName,
-                    userId: user.id
-                }
-            }
-        });
+        const { 
+            id, name, status, tabs, questions, contents, charLimits, 
+            roleId, analysisId, companyName, jobTitle 
+        } = await req.json();
 
-        // 만약 예외적으로 Role이 없다면 (기존 데이터 등), 생성 시도
-        if (!role) {
-            const analysis = await prisma.jobAnalysis.findFirst({
-                where: { companyName, userId: user.id }
-            });
-            if (!analysis) return NextResponse.json({ error: 'Analysis not found' }, { status: 404 });
-            
-            role = await (prisma as any).jobRole.create({
-                data: {
-                    analysisId: analysis.id,
-                    roleTitle: roleTitle
-                }
-            });
-        }
-
-        // 2. 트랜잭션으로 초안들 저장
-        await (prisma as any).$transaction(async (tx: any) => {
-            // 기존 초안들을 모두 지우고 새로 생성 (동기화의 단순화)
-            // 실제 서비스라면 개별 업데이트가 좋지만, 현재는 전체 상태를 한꺼번에 저장하는 구조임
-            await tx.selfIntroduction.deleteMany({
-                where: { roleId: role!.id, userId: user.id }
-            });
-
-            for (const draft of drafts) {
-                const newIntro = await tx.selfIntroduction.create({
+        // 트랜잭션으로 저장
+        const result = await (prisma as any).$transaction(async (tx: any) => {
+            let si;
+            if (id && !id.startsWith('temp-')) {
+                // 기존 문서 업데이트
+                si = await tx.selfIntroduction.update({
+                    where: { id: parseInt(id) },
                     data: {
-                        userId: user.id,
-                        roleId: role!.id,
-                        title: draft.name,
-                        name: draft.name,
-                        isFinal: draft.isFinal || false,
-                        status: draft.status || '작성전',
+                        title: name,
+                        status: status || '작성전',
+                        roleId: roleId ? parseInt(roleId) : null,
+                        analysisId: analysisId ? parseInt(analysisId) : null,
+                        manualCompanyName: !analysisId ? companyName : null,
+                        manualJobTitle: !analysisId ? jobTitle : null
                     }
                 });
 
-                // 문항들 생성
-                if (draft.tabs && draft.tabs.length > 0) {
-                    await tx.selfIntroItem.createMany({
-                        data: draft.tabs.map((tab: string, idx: number) => ({
-                            selfIntroductionId: newIntro.id,
-                            question: tab,
-                            aiGuide: draft.questions ? draft.questions[idx] : '',
-                            answer: draft.contents[idx] || '',
-                            charLimit: draft.charLimits ? draft.charLimits[idx] : 700,
-                            orderIndex: idx
-                        }))
-                    });
-                }
+                // 기존 문항 일괄 삭제 후 재생성 (동기화 단순화)
+                await tx.selfIntroItem.deleteMany({ where: { selfIntroductionId: si.id } });
+            } else {
+                // 신규 문서 생성
+                si = await tx.selfIntroduction.create({
+                    data: {
+                        userId: user.id,
+                        title: name || '새 자기소개서',
+                        status: status || '작성전',
+                        roleId: roleId ? parseInt(roleId) : null,
+                        analysisId: analysisId ? parseInt(analysisId) : null,
+                        manualCompanyName: !analysisId ? companyName : null,
+                        manualJobTitle: !analysisId ? jobTitle : null
+                    }
+                });
             }
+
+            // 문항 저장
+            if (tabs && tabs.length > 0) {
+                await tx.selfIntroItem.createMany({
+                    data: tabs.map((tab: string, idx: number) => ({
+                        selfIntroductionId: si.id,
+                        question: tab,
+                        aiGuide: questions ? questions[idx] : '',
+                        answer: contents ? contents[idx] : '',
+                        charLimit: charLimits ? charLimits[idx] : 700,
+                        orderIndex: idx
+                    }))
+                });
+            }
+            return si;
         });
 
-        return NextResponse.json({ success: true });
+        return NextResponse.json({ success: true, id: String(result.id) });
     } catch (error: any) {
-        console.error('Workspace Save Error Details:', {
-            message: error.message,
-            stack: error.stack
-        });
+        console.error('Workspace Save Error:', error);
         return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
     }
 }
