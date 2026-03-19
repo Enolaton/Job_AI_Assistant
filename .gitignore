@@ -247,7 +247,7 @@ test-*.js
 debug_screenshot.png
 
 # 임시 스크립트 및 테스트 (Temporary scripts & tests)
-test_db.ts
+dart/
 tmp/
 
 # 프로젝트 규칙

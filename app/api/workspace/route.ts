@@ -151,3 +151,45 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
     }
 }
+
+// DELETE: 자기소개서 삭제
+export async function DELETE(req: NextRequest) {
+    try {
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.email) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { email: session.user.email },
+        });
+        if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+
+        const url = new URL(req.url);
+        const id = url.searchParams.get('id');
+
+        if (!id) {
+            return NextResponse.json({ error: 'ID is required' }, { status: 400 });
+        }
+
+        // 해당 사용자의 문서인지 확인 후 삭제
+        const si = await (prisma as any).selfIntroduction.findUnique({
+            where: { id: parseInt(id) }
+        });
+
+        if (!si || si.userId !== user.id) {
+            return NextResponse.json({ error: 'Not found' }, { status: 404 });
+        }
+
+        // 연관된 문항들과 함께 삭제 (On cascade delete 설정에 따라 다르지만 명시적 처리 권장)
+        await (prisma as any).$transaction(async (tx: any) => {
+            await tx.selfIntroItem.deleteMany({ where: { selfIntroductionId: si.id } });
+            await tx.selfIntroduction.delete({ where: { id: si.id } });
+        });
+
+        return NextResponse.json({ success: true });
+    } catch (error: any) {
+        console.error('Workspace Delete Error:', error);
+        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    }
+}

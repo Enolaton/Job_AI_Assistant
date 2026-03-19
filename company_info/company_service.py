@@ -27,58 +27,53 @@ class CompanyService:
         self.naver_secret = os.getenv("NAVER_CLIENT_SECRET")
 
     def get_naver_news(self, company_name, job_title):
-        """네이버 검색 API(Naver Search API)를 호출(Invoke)하여 최신순(Recent) 뉴스를 다중 쿼리로 수집합니다."""
+        """네이버 검색 API를 호출하며, 최신순 기사 중 '네이버 뉴스(In-link)' 페이지만 수집합니다."""
         url = "https://openapi.naver.com/v1/search/news.json"
         headers = {
             "X-Naver-Client-Id": self.naver_id,
             "X-Naver-Client-Secret": self.naver_secret
         }
         
-        # 다중 쿼리 전략(Multi-query Strategy)
-        queries = [
-            f"{company_name} (채용 | 신사업 | 전략 | 전망)",
-            f"{company_name} {job_title}"
-        ]
+        # 쿼리 전략: 기업명 단독 검색 (사용자 요청)
+        queries = [company_name]
         
         all_news_items = []
         seen_urls = set()
 
         for query in queries:
-            # 뉴스 품질 향상을 위해 연도 키워드 추가 및 관련도순(sim)으로 복구
             params = { 
-                "query": f"{query} 2025", 
-                "display": 10, 
-                "sort": "sim" # 최신성과 정확도의 균형을 위해 관련도순으로 복합 적용
+                "query": query, 
+                "display": 50, # 최신 기사 중 인링크 비율을 확보하기 위해 검색량을 더 늘림
+                "sort": "date" # 최신순 정렬
             }
             try:
                 response = requests.get(url, headers=headers, params=params, timeout=5)
                 if response.status_code == 200:
                     data = response.json()
                     for item in data.get('items', []):
+                        # 네이버 뉴스(news.naver.com) 인링크 기사만 선별
                         if item['link'] not in seen_urls and "news.naver.com" in item['link']:
-                            title = item['title'].replace("<b>", "").replace("</b>", "").replace("&quot;", "\"")
-                            description = item['description'].replace("<b>", "").replace("</b>", "").replace("&quot;", "\"")
-                            # 날짜 형식 변환 (Convert Date Format): 'Wed, 18 Mar 2026...' -> '2026년 03월 18일'
+                            title = item['title'].replace("<b>", "").replace("</b>", "").replace("&quot;", "\"").replace("&amp;", "&")
+                            description = item['description'].replace("<b>", "").replace("</b>", "").replace("&quot;", "\"").replace("&amp;", "&")
+                            
                             pub_date = item.get('pubDate', '')
                             try:
                                 dt = parsedate_to_datetime(pub_date)
-                                # 파싱 결과가 None이 아닌지 확인하여 안정성 강화 (Safety Check)
-                                if dt:
-                                    formatted_date = dt.strftime("%Y년 %m월 %d일")
-                                else:
-                                    formatted_date = pub_date
+                                formatted_date = dt.strftime("%Y년 %m월 %d일") if dt else pub_date
                             except:
-                                formatted_date = pub_date # 파싱 실패 시 원본 유지 (Keep Original if Failed)
+                                formatted_date = pub_date
 
                             all_news_items.append({
                                 "title": title, "description": description,
                                 "url": item['link'], "pub_date": formatted_date
                             })
                             seen_urls.add(item['link'])
+                else:
+                    sys.stderr.write(f"\n[Naver API Error] Status: {response.status_code}\n")
             except Exception as e:
-                sys.stderr.write(f"\n[Naver API Error] {str(e)}\n")
+                sys.stderr.write(f"\n[Naver API Request Error] {str(e)}\n")
 
-        return all_news_items[:5] # type: ignore
+        return all_news_items[:5]
 
     def get_company_analysis(self, company_name, job_title):
         """기업의 인재상(Ideal Candidate) 및 조직문화(Culture)를 개별 키워드 중심으로 심층 분석합니다."""

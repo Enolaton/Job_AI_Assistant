@@ -9,7 +9,10 @@ import {
     Newspaper, 
     ExternalLink, 
     MessageSquare, 
-    Loader2 
+    Loader2,
+    PieChart,
+    TrendingUp,
+    Briefcase as BusinessIcon
 } from 'lucide-react';
 
 interface CompanyReportModalProps {
@@ -86,6 +89,58 @@ export default function CompanyReportModal({
                                 </div>
                             ) : data ? (
                                 <div className="space-y-10 animate-in fade-in duration-700">
+                                    {/* DART 기업공시 분석 섹션 */}
+                                    {data.dart && (
+                                        <section>
+                                            <div className="flex items-center gap-2 mb-6">
+                                                <h4 className="text-emerald-600 font-black text-sm uppercase tracking-widest flex items-center gap-2">
+                                                    <BarChart3 size={16} /> DART 기업공시 분석 (AI 요약)
+                                                </h4>
+                                                <div className="h-[1px] bg-emerald-100 flex-1 ml-2"></div>
+                                            </div>
+                                            <div className="grid grid-cols-1 gap-4">
+                                                {/* 사업 개요 */}
+                                                {data.dart.business && (
+                                                    <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-6">
+                                                        <div className="flex items-center gap-2 mb-3">
+                                                            <div className="p-1.5 bg-emerald-100 text-emerald-700 rounded-lg">
+                                                                <TrendingUp size={14} />
+                                                            </div>
+                                                            <h5 className="text-sm font-black text-emerald-900">산업 내 위치 및 핵심 경쟁력</h5>
+                                                        </div>
+                                                        <p className="text-xs text-slate-600 leading-relaxed font-medium whitespace-pre-wrap">{data.dart.business}</p>
+                                                    </div>
+                                                )}
+
+                                                {/* 수익 모델 */}
+                                                {data.dart.products && (
+                                                    <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-6">
+                                                        <div className="flex items-center gap-2 mb-3">
+                                                            <div className="p-1.5 bg-indigo-100 text-indigo-700 rounded-lg">
+                                                                <BusinessIcon size={14} />
+                                                            </div>
+                                                            <h5 className="text-sm font-black text-indigo-900">핵심 수익 모델 (Product)</h5>
+                                                        </div>
+                                                        <p className="text-xs text-slate-600 leading-relaxed font-medium whitespace-pre-wrap">{data.dart.products}</p>
+                                                    </div>
+                                                )}
+
+                                                {/* 재무 요약 */}
+                                                {data.dart.financial && (
+                                                    <div className="bg-amber-50/50 border border-amber-100 rounded-2xl p-6">
+                                                        <div className="flex items-center gap-2 mb-3">
+                                                            <div className="p-1.5 bg-amber-100 text-amber-700 rounded-lg">
+                                                                <PieChart size={14} />
+                                                            </div>
+                                                            <h5 className="text-sm font-black text-amber-900">재무 성장성 및 안정성 ({data.dart.reportYear}년 기준)</h5>
+                                                        </div>
+                                                        <p className="text-xs text-slate-600 leading-relaxed font-medium whitespace-pre-wrap">{data.dart.financial}</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </section>
+                                    )}
+
                                     {/* 조직문화 요약 */}
                                     <section>
                                         <div className="flex items-center gap-2 mb-4">
