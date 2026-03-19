@@ -19,7 +19,8 @@ import {
     BarChart3,
     Search,
     CheckCircle2,
-    ChevronDown
+    ChevronDown,
+    Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'react-hot-toast';
@@ -132,6 +133,25 @@ export default function WorkspaceView({
             toast.error('문서를 여는 중 오류가 발생했습니다.');
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const handleDeleteDocument = async (id: string) => {
+        if (!window.confirm('이 자기소개서를 삭제하시겠습니까? 삭제된 문서는 복구할 수 없습니다.')) return;
+        
+        try {
+            const res = await fetch(`/api/workspace?id=${id}`, {
+                method: 'DELETE'
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success('삭제되었습니다.');
+                fetchDocuments();
+            } else {
+                toast.error(data.error || '삭제 중 오류가 발생했습니다.');
+            }
+        } catch (error) {
+            toast.error('삭제 중 오류가 발생했습니다.');
         }
     };
 
@@ -404,8 +424,17 @@ export default function WorkspaceView({
                                                 })}
                                             </span>
                                         </div>
-                                        <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 group-hover:bg-slate-900 group-hover:text-white transition-all">
-                                            <ArrowRight size={14} />
+                                        <div className="flex items-center gap-2">
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); handleDeleteDocument(doc.id); }}
+                                                className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 hover:bg-rose-50 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"
+                                                title="삭제"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                            <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 group-hover:bg-slate-900 group-hover:text-white transition-all">
+                                                <ArrowRight size={14} />
+                                            </div>
                                         </div>
                                     </div>
                                 </motion.div>

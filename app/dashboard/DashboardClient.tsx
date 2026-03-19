@@ -21,7 +21,6 @@ import WorkspaceView from './components/WorkspaceView';
 export default function DashboardClient() {
     const { data: session } = useSession();
     const [currentView, setCurrentView] = useState<ViewType>('analysis');
-    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [jdUrl, setJdUrl] = useState('');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [analysisResult, setAnalysisResult] = useState<any>(null);
@@ -158,8 +157,6 @@ export default function DashboardClient() {
             <Toaster position="top-right" />
             
             <Sidebar 
-                isSidebarOpen={isSidebarOpen}
-                setIsSidebarOpen={setIsSidebarOpen}
                 currentView={currentView}
                 setCurrentView={setCurrentView}
                 userName={userName}
@@ -171,9 +168,6 @@ export default function DashboardClient() {
             <main className="flex-1 flex flex-col h-screen overflow-hidden">
                 <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0">
                     <div className="flex items-center gap-4">
-                        <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-500">
-                            <LayoutDashboard size={20} />
-                        </button>
                         <h2 className="text-lg font-bold text-slate-900 capitalize">
                             {currentView === 'experience' ? '경험 뱅크' :
                                 currentView === 'workspace' ? '자기소개서' :

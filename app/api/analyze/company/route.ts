@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
         const companyName = cleanName(rawCompanyName);
 
         const serviceScriptPath = path.join(process.cwd(), 'company_info', 'company_service.py');
+        const dartScriptPath = path.join(process.cwd(), 'dart', 'run_pipeline.py');
         const venvPythonPath = path.join(process.cwd(), '.venv', 'Scripts', 'python.exe');
         const pythonExecutable = fs.existsSync(venvPythonPath) ? venvPythonPath : 'python';
 
@@ -78,13 +79,8 @@ export async function POST(req: NextRequest) {
             });
         };
 
-        // --- 1. 뉴스 데이터 실시간 수집 (Always Real-time News) ---
-        const newsResult = await runPython(serviceScriptPath, [companyName, jobTitle || '', 'news']);
-        const realTimeNews = newsResult.news || [];
-
-        // --- 2. 기업 분석 데이터 처리 (Analysis Data: DB Cache Priority) ---
-        let finalAnalysis = null;
-
+        // --- 1. 데이터 수집 및 분석 (병렬 실행) ---
+        // 기존 분석 결과가 있는지 확인
         const existingReport = await (prisma as any).companyReport.findUnique({
             where: {
                 userId_companyName: {
@@ -94,16 +90,51 @@ export async function POST(req: NextRequest) {
             }
         });
 
-        if (existingReport && existingReport.reportData?.analysis) {
-            console.log(`💡 [CACHE HIT] '${companyName}' 기업 분석 정보를 DB에서 추출했습니다. (정적 데이터 유지)`);
-            finalAnalysis = existingReport.reportData.analysis;
+        const reportData = (existingReport?.reportData as any) || {};
+        let finalAnalysis = reportData.analysis;
+        let finalDart = reportData.dart;
+
+        // 분석이 필요한 항목들 선별하여 병렬 실행
+        const tasks: Promise<any>[] = [
+            runPython(serviceScriptPath, [companyName, jobTitle || '', 'news']) // 뉴스는 항상 실시간
+        ];
+
+        // 인재상/조직문화 분석은 DB에 없을 경우에만 최초 1회 실행 (새로고침 시 재분석 제외)
+        if (!finalAnalysis) {
+            tasks.push(runPython(serviceScriptPath, [companyName, jobTitle || '', 'analysis']));
         }
 
-        if (!finalAnalysis) {
-            console.log(`🚀 [NEW ANALYSIS] '${companyName}' 기업 정보를 새로 분석합니다.`);
-            const analysisResult = await runPython(serviceScriptPath, [companyName, jobTitle || '', 'analysis']);
-            finalAnalysis = analysisResult.analysis || { "인재상": [], "조직문화": [] };
+        if (!finalDart || forceRefresh) {
+            tasks.push(runPython(dartScriptPath, [companyName]));
+        }
 
+        const results = await Promise.all(tasks);
+        
+        // 결과 매핑 (구조적 불일치 전수 교정)
+        let realTimeNews = results[0]?.news || [];
+        let updated = false;
+
+        results.slice(1).forEach(res => {
+            // 1. 기업 문화 및 인재상 분석 결과 매핑
+            if (res.analysis) {
+                finalAnalysis = res.analysis;
+                updated = true;
+            }
+            // 2. DART 기업 공시 분석 결과 매핑 (status: success 체크 및 키값 정규화)
+            if (res.status === 'success') {
+                finalDart = {
+                    companyName: res.company_name,
+                    reportYear: res.report_year,
+                    business: res.business_summary,
+                    products: res.products_services_summary,
+                    financial: res.financial_summary
+                };
+                updated = true;
+            }
+        });
+
+        // 결과가 업데이트되었거나 캐시가 없었던 경우, 혹은 DART 데이터가 여전히 비어있는 경우 DB 갱신
+        if (updated || !existingReport || !finalDart) {
             await (prisma as any).companyReport.upsert({
                 where: {
                     userId_companyName: {
@@ -112,20 +143,27 @@ export async function POST(req: NextRequest) {
                     }
                 },
                 update: {
-                    reportData: { analysis: finalAnalysis }
+                    reportData: { 
+                        analysis: finalAnalysis || { "인재상": [], "조직문화": [] },
+                        dart: finalDart || null
+                    }
                 },
                 create: {
                     userId: user.id,
                     companyName: companyName,
-                    reportData: { analysis: finalAnalysis }
+                    reportData: { 
+                        analysis: finalAnalysis || { "인재상": [], "조직문화": [] },
+                        dart: finalDart || null
+                    }
                 }
             });
-            console.log(`💡 [DB SAVED] '${companyName}' 기업 분석 데이터(Analysis)를 캐싱했습니다.`);
+            console.log(`💡 [DB UPDATED] '${companyName}' 기업 분석 및 DART 데이터를 캐싱했습니다.`);
         }
 
         return NextResponse.json({
             news: realTimeNews,
-            analysis: finalAnalysis
+            analysis: finalAnalysis,
+            dart: finalDart
         });
 
     } catch (error) {
