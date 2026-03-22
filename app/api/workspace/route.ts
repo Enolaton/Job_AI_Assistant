@@ -193,3 +193,31 @@ export async function DELETE(req: NextRequest) {
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
 }
+// PATCH: 특정 필드만 부분 업데이트 (예: 상태 변경)
+export async function PATCH(req: NextRequest) {
+    try {
+        const session = await getServerSession(authOptions);
+        if (!session?.user?.email) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { email: session.user.email },
+        });
+        if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+
+        const { id, status } = await req.json();
+        if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
+
+        // 상태값만 안전하게 업데이트
+        await (prisma as any).selfIntroduction.update({
+            where: { id: parseInt(id), userId: user.id },
+            data: { status }
+        });
+
+        return NextResponse.json({ success: true });
+    } catch (error: any) {
+        console.error('Workspace PATCH Error:', error);
+        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    }
+}

@@ -159,20 +159,34 @@ export default function WorkspaceView({
 
     const handleSave = async (docToSave = currentDoc, silent = false) => {
         if (!docToSave) return;
+        
+        // 데이터 정합성 보장: id가 있으면 업데이트 모드로 동작
+        const payload = {
+            ...docToSave,
+            id: docToSave.id?.toString() // ID 강제 문자열 변환
+        };
+
         try {
             const res = await fetch('/api/workspace', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(docToSave)
+                body: JSON.stringify(payload)
             });
             const data = await res.json();
             if (data.success) {
                 if (!silent) toast.success('저장되었습니다.');
+                // 서버에서 새로 생성된 ID가 있다면 업데이트
+                if (data.id && (!currentDoc.id || currentDoc.id.toString().startsWith('temp-'))) {
+                    setCurrentDoc({ ...currentDoc, id: data.id });
+                }
                 setLastSavedAt(new Date());
                 fetchDocuments();
+            } else {
+                throw new Error(data.error);
             }
-        } catch (error) {
-            if (!silent) toast.error('저장 중 오류가 발생했습니다.');
+        } catch (error: any) {
+            console.error('Save Error:', error);
+            if (!silent) toast.error(error.message || '저장 중 오류가 발생했습니다.');
         }
     };
 
@@ -243,22 +257,23 @@ export default function WorkspaceView({
 
     const handleQuickStatusChange = async (docId: string, newStatus: DocStatus) => {
         try {
-            // 목록에서 즉시 반영을 위해 상태 업데이트만 전송하는 로직 (기존 POST 재활용 가능하면 사용)
-            // 여기서는 문서를 가져와서 상태만 바꿔서 다시 저장하거나, 전용 API가 있다면 좋지만 
-            // 현재 구조상 전체 데이터를 보내야 하므로, 목록 상태를 먼저 바꾸고 서버에 알림
+            // UI 측면에서 즉시 반영
             setDocuments(prev => prev.map(d => d.id === docId ? { ...d, status: newStatus } : d));
+            if (currentDoc && currentDoc.id === docId) {
+                setCurrentDoc({ ...currentDoc, status: newStatus });
+            }
 
-            // 상세 정보를 가져와서 업데이트하거나 전용 필드 업데이트 API 호출 (여기서는 간단히 처리)
-            toast.success(`상태가 '${newStatus}'(으)로 변경되었습니다.`);
-
-            // 실제 서버 반영 (상태만 업데이트하는 로직이 필요할 수 있음)
-            // 임시로 fetchDocuments를 다시 호출하여 정합성 유지
+            // [CRITICAL FIX] 전체 데이터를 보내지 않고 상태만 업데이트하도록 전용 API 호출
+            // 기존 POST는 전체 덮어쓰기 로직이므로 PATCH를 통해 상태만 수정하도록 백엔드와 맞춤
             const res = await fetch('/api/workspace', {
-                method: 'POST',
+                method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id: docId, status: newStatus })
             });
+
             if (!res.ok) throw new Error();
+            toast.success(`상태가 '${newStatus}'(으)로 변경되었습니다.`);
+            fetchDocuments(); // 목록 최종 확인
         } catch (error) {
             toast.error('상태 변경 중 오류가 발생했습니다.');
             fetchDocuments();
