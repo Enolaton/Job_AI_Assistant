@@ -113,6 +113,7 @@ model UserDocument {
   type      String   // 'RESUME', 'COVER_LETTER', 'PORTFOLIO'
   fileName  String   @map("file_name")
   fileUrl   String   @map("file_url")
+  contentJson Json?    @map("content_json")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -131,4 +132,20 @@ model CompanyReport {
 
   @@unique([userId, companyName])
   @@map("company_reports")
+}
+
+// 신규: 기업 분석 정형 데이터 테이블
+model CompanyAnalysis {
+  id                Int      @id @default(autoincrement())
+  companyName       String   @unique @map("company_name")
+  idealCandidate    Json?    @map("ideal_candidate") // 인재상 (분절된 키워드 배열)
+  corporateCulture  Json?    @map("corporate_culture") // 조직문화 (분절된 키워드 배열)
+  businessSummary   String?  @map("business_summary") @db.Text
+  productSummary    String?  @map("product_summary") @db.Text
+  financialSummary  String?  @map("financial_summary") @db.Text
+  reportYear        String?  @map("report_year")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("company_analyses")
 }

@@ -4,6 +4,18 @@ import prisma from "@/lib/prisma";
 import { authOptions } from '@/lib/auth';
 import OpenAI from 'openai';
 import { createClient } from '@supabase/supabase-js';
+import fs from 'fs';
+import path from 'path';
+import { spawn } from 'child_process';
+import { promisify } from 'util';
+
+const writeFileAsync = promisify(fs.writeFile);
+const unlinkAsync = promisify(fs.unlink);
+const mkdirAsync = promisify(fs.mkdir);
+
+const pythonPath = process.platform === 'win32'
+    ? path.join(process.cwd(), '.venv', 'Scripts', 'python.exe')
+    : path.join(process.cwd(), '.venv', 'bin', 'python');
 
 export const dynamic = 'force-dynamic';
 
@@ -109,6 +121,64 @@ export async function POST(request: Request) {
         const buffer = Buffer.from(bytes);
 
         const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+        const tempPath = path.join(process.cwd(), '.tmp', `upload_${uniqueSuffix}.pdf`);
+        const tmpDir = path.dirname(tempPath);
+
+        let contentJson = null;
+
+        try {
+            if (!fs.existsSync(tmpDir)) {
+                await mkdirAsync(tmpDir, { recursive: true });
+            }
+            await writeFileAsync(tempPath, buffer);
+            // 파일 타입(RESUME/PORTFOLIO)에 따라 판독 스크립트 선택
+            const scriptName = type === 'RESUME' ? 'resume_parser.py' : 'portfolio_parser.py';
+            const scriptPath = path.join(process.cwd(), 'scripts', scriptName);
+            const failureReason = type === 'RESUME' ? '이력서가 아닙니다.' : '포트폴리오가 아닙니다.';
+            
+            const pythonProcess = spawn(pythonPath, [scriptPath, tempPath, 'full']);
+
+            let outputData = '';
+            let errorData = '';
+            await new Promise((resolve, reject) => {
+                pythonProcess.stdout.on('data', (d) => outputData += d.toString());
+                pythonProcess.stderr.on('data', (d) => errorData += d.toString());
+                pythonProcess.on('close', (code) => {
+                    if (code === 0) resolve(outputData);
+                    else reject(new Error(errorData || `Python script exited with code ${code}`));
+                });
+            });
+
+            const analysisResult = JSON.parse(outputData);
+            console.log(`[bank] Upload Validation & Parsing Result (${type}):`, analysisResult);
+            
+            // 유효성 키 통일 (Script에서 호환성을 위해 추가해둔 is_valid_resume 사용)
+            if (analysisResult.is_valid_resume !== true) {
+                // 부적합한 파일일 경우 즉시 중단 및 임시 파일 삭제
+                if (fs.existsSync(tempPath)) await unlinkAsync(tempPath);
+                return NextResponse.json({ 
+                    error: 'Invalid document type', 
+                    reason: failureReason 
+                }, { status: 400 });
+            }
+
+            // 업로드 즉시 핵심 데이터(JSONB) 준비
+            contentJson = analysisResult.extracted_data || null;
+
+        } catch (error: any) {
+            console.error('[bank] Analysis failed:', error.message);
+            // 분석 실패 시(파이썬 스크립트 실행 불가 등)에도 사용자에게는 부적합 안내로 통일
+            if (fs.existsSync(tempPath)) await unlinkAsync(tempPath);
+            return NextResponse.json({ 
+                error: 'Analysis Error', 
+                reason: '파일 분석 중 오류가 발생했습니다.' 
+            }, { status: 400 });
+        } finally {
+            if (fs.existsSync(tempPath)) {
+                await unlinkAsync(tempPath).catch(err => console.error('[bank] Failed to delete temp file:', err));
+            }
+        }
+
         const fileName = `${uniqueSuffix}-${file.name.replace(/[^a-zA-Z0-9.\-_]/g, '')}`;
 
         const { data: uploadData, error: uploadError } = await supabase.storage
@@ -143,10 +213,11 @@ export async function POST(request: Request) {
                 type: type,
                 fileName: file.name,
                 fileUrl: fileUrl,
-            },
+                contentJson: contentJson
+            } as any,
         });
 
-        console.log(`[bank] POST: Saved doc ${document.id}`);
+        console.log(`[bank] POST: Saved doc ${document.id} with JSON content`);
         return NextResponse.json(document);
     } catch (error: any) {
         console.error('Error uploading file:', error);
@@ -228,7 +299,7 @@ export async function DELETE(request: Request) {
 }
 
 export async function PUT(request: Request) {
-    console.log('--- PUT /api/bank (Analyze) START ---');
+    console.log('--- PUT /api/bank (Full Analysis & JSONB Save) START ---');
     try {
         const session = await getServerSession(authOptions);
         if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -243,64 +314,95 @@ export async function PUT(request: Request) {
             return NextResponse.json({ error: '분석할 서류가 없습니다.' }, { status: 400 });
         }
 
-        const texts = await Promise.all(user.documents.map(async (doc: any, index: number) => {
-            const text = await extractTextFromFile(doc.fileUrl);
-            return text ? `--- [문서 ${index + 1}: ${doc.fileName}] ---\n${text}` : '';
-        }));
-        const combinedText = texts.filter(t => t.length > 0).join('\n\n');
+        const scriptPath = path.join(process.cwd(), 'scripts', 'resume_parser.py');
+        const tmpDir = path.join(process.cwd(), '.tmp');
+        if (!fs.existsSync(tmpDir)) await mkdirAsync(tmpDir, { recursive: true });
 
-        if (!combinedText.trim()) return NextResponse.json({ error: '텍스트 추출 실패' }, { status: 400 });
+        // === 1. 미분석 서류에 대한 정밀 분석 수행 (JSONB 보완) ===
+        // 업로드 시 이미 분석되었다면 스킵, 아니면 수행 (단계 2 보장)
+        for (const doc of user.documents) {
+            if (!doc.contentJson) {
+                console.log(`[bank] Late parsing for missing JSONB: ${doc.fileName}`);
+                const response = await fetch(doc.fileUrl);
+                const buffer = Buffer.from(await response.arrayBuffer());
+                const tempPath = path.join(tmpDir, `analyze_${doc.id}.pdf`);
+                await writeFileAsync(tempPath, buffer);
 
-        const response = await openai.chat.completions.create({
+                try {
+                    const pythonProcess = spawn(pythonPath, [scriptPath, tempPath, 'full']);
+                    let outputData = '';
+                    let errorData = '';
+                    await new Promise((resolve, reject) => {
+                        pythonProcess.stdout.on('data', (d) => outputData += d.toString());
+                        pythonProcess.stderr.on('data', (d) => errorData += d.toString());
+                        pythonProcess.on('close', (code) => {
+                            if (code === 0) resolve(outputData);
+                            else reject(new Error(errorData || `Python script exited with code ${code}`));
+                        });
+                    });
+
+                    const result = JSON.parse(outputData);
+                    // @ts-ignore
+                    await prisma.userDocument.update({
+                        where: { id: doc.id },
+                        data: { contentJson: result.extracted_data } as any
+                    });
+                    doc.contentJson = result.extracted_data;
+                } catch (err) {
+                    console.error(`[bank] Failed to late parse ${doc.fileName}:`, err);
+                } finally {
+                    if (fs.existsSync(tempPath)) await unlinkAsync(tempPath);
+                }
+            }
+        }
+
+        // === 2. 이미 구축된 JSONB(팩트)를 바탕으로 STARI 카드 통합 생성 ===
+        const allFacts = user.documents
+            .map((doc: any) => doc.contentJson ? JSON.stringify(doc.contentJson) : '')
+            .filter((t: string) => t.length > 0)
+            .join('\n\n');
+
+        if (!allFacts.trim()) {
+            return NextResponse.json({ error: '분석할 구조화된 데이터(JSONB)가 없습니다.' }, { status: 400 });
+        }
+
+        // OpenAI를 통해 카드 리스트 형태(JSON)로 STARI 요약본 추출
+        const aiResponse = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: [
-                {
-                    role: "system",
-                    content: `너는 취업 컨설팅 전문가이자 커리어 분석가이다. 사용자가 제공한 텍스트(이력서, 자기소개서, 포트폴리오 등)에서 주요 '경험'들을 추출하여 STARI 기법으로 요약해라.
+                { 
+                    role: "system", 
+                    content: "너는 취업 컨설팅 전문가다. 제공된 '구조화된 이력서 데이터(JSON)'를 바탕으로 주요 실무 경험을 STARI 기법으로 요약해라. 각 경험은 반드시 매력적인 제목을 포함한 카드 형태로 출력할 수 있도록 아래 지침에 맞게 JSON 형식으로 반환해라." 
+                },
+                { 
+                    role: "user", 
+                    content: `다음은 추출된 팩트 데이터다. 여기서 핵심 경험 3~5개를 찾아 STARI 카드로 요약해:\n\n${allFacts.substring(0, 10000)}
 
-[STARI 기법 지침]
-- Title: 경험의 핵심을 보여주는 매력적인 소제목 (예: '데이터 분석을 통한 고객 이탈률 15% 감소')
-- Situation: 어떤 환경이나 배경에서 발생한 일인지 간결하게 설명
-- Task: 본인이 해결해야 했던 문제나 맡았던 구체적인 목표
-- Action: 문제를 해결하기 위해 본인이 '직접' 수행한 행동 (구체적인 방법, 툴 활용 등)
-- Result: 행동의 결과로 나타난 성과 (가능한 한 숫자나 지표로 표현, 예: '매출 10% 증대', '처리 시간 20% 단축')
-- Insight: 이 경험을 통해 배운 점이나 회사에서 어떻게 기여할 수 있는지에 대한 통찰
-- Tags: 경험의 성격과 핵심 역량을 나타내는 키워드 3~5개 (예: '문제해결', '데이터분석', '협업', '적응력', 'Java')
-
-[출력 규칙]
-1. 반드시 한국어로 답변할 것.
-2. 문장은 공손하면서도 전문적인 어조(평어체 권장)로 작성할 것.
-3. 불필요한 사족 없이 정확히 지정된 JSON 구조로만 응답할 것.
-4. 추출할 경험이 여러 개인 경우 리스트에 담을 것.
-5. 여러 개의 문서가 함께 제공될 수 있으므로, 서로 다른 문서의 내용이나 관련 없는 경험이 하나로 섞이지 않도록 주의할 것. 각 경험은 개별적이고 독립적으로 추출할 것.
-
-JSON 구조:
+출력 JSON 형식:
 {
   "experiences": [
     {
-      "title": "strings",
-      "situation": "strings",
-      "task": "strings",
-      "action": "strings",
-      "result": "strings",
-      "insight": "strings",
-      "tags": ["strings"]
+      "title": "핵심 성과 위주 제목",
+      "situation": "상황",
+      "task": "내 역할과 과제",
+      "action": "구체적 행동",
+      "result": "정량적 성과 (숫자 포함)",
+      "insight": "배운 점 및 인사이트",
+      "tags": ["기술", "역량", "태도"]
     }
   ]
-}`
-                },
-                { role: "user", content: `다음은 사용자의 서류 내용이다. 여기서 핵심 경험들을 추출해라:\n\n${combinedText.substring(0, 12000)}` }
+}` 
+                }
             ],
-            response_format: { type: "json_object" }
+            response_format: { type: "json_object" },
+            temperature: 0.0
         });
 
-        const result = JSON.parse(response.choices[0].message.content || '{"experiences": []}');
-
-        // 1. Delete existing experiences for this user to avoid duplicates on re-analysis
-        await prisma.experience.deleteMany({
-            where: { userId: user.id }
-        });
-
+        const result = JSON.parse(aiResponse.choices[0].message.content || '{"experiences": []}');
+        
+        // 기존 경험 카드 정보를 비우고 새로 생성 (통합 분석 품질 보장)
+        await prisma.experience.deleteMany({ where: { userId: user.id } });
+        
         const saved = [];
         for (const exp of result.experiences) {
             const s = await prisma.experience.create({
@@ -318,7 +420,7 @@ JSON 구조:
             saved.push(s);
         }
 
-        console.log(`[bank] PUT: Analyzed and saved ${saved.length} experiences`);
+        console.log(`[bank] PUT: Integrated STARI analysis saved to Experience table (${saved.length} units)`);
         return NextResponse.json({ success: true, experiences: saved });
 
     } catch (error: any) {

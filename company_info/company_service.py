@@ -27,7 +27,7 @@ class CompanyService:
         self.naver_secret = os.getenv("NAVER_CLIENT_SECRET")
 
     def get_naver_news(self, company_name, job_title):
-        """네이버 검색 API를 호출하며, 최신순 기사 중 '네이버 뉴스(In-link)' 페이지만 수집합니다."""
+        """네이버 검색 API를 호출하며, 유사도순 기사 중 '네이버 뉴스(In-link)' 페이지만 수집합니다."""
         url = "https://openapi.naver.com/v1/search/news.json"
         headers = {
             "X-Naver-Client-Id": self.naver_id,
@@ -43,8 +43,8 @@ class CompanyService:
         for query in queries:
             params = { 
                 "query": query, 
-                "display": 50, # 최신 기사 중 인링크 비율을 확보하기 위해 검색량을 더 늘림
-                "sort": "date" # 최신순 정렬
+                "display": 50, # 인링크 기사 확률을 높이기 위해 검색량을 50개로 유지
+                "sort": "sim" # 유사도순 정렬 (원복)
             }
             try:
                 response = requests.get(url, headers=headers, params=params, timeout=5)
@@ -57,15 +57,17 @@ class CompanyService:
                             description = item['description'].replace("<b>", "").replace("</b>", "").replace("&quot;", "\"").replace("&amp;", "&")
                             
                             pub_date = item.get('pubDate', '')
+                            dt = datetime.min
                             try:
                                 dt = parsedate_to_datetime(pub_date)
                                 formatted_date = dt.strftime("%Y년 %m월 %d일") if dt else pub_date
-                            except:
+                            except Exception:
                                 formatted_date = pub_date
 
                             all_news_items.append({
                                 "title": title, "description": description,
-                                "url": item['link'], "pub_date": formatted_date
+                                "url": item['link'], "pub_date": formatted_date,
+                                "_raw_date": dt or datetime.min  # 정렬용 (파싱 실패시 최소값)
                             })
                             seen_urls.add(item['link'])
                 else:
@@ -73,24 +75,36 @@ class CompanyService:
             except Exception as e:
                 sys.stderr.write(f"\n[Naver API Request Error] {str(e)}\n")
 
-        return all_news_items[:5]
+        # 1. 50개의 유사도순(관련도 1순위) 기사 중
+        # 2. 날짜 최신순(2순위)으로 재정렬하여 최종 5개 반환
+        all_news_items.sort(key=lambda x: x["_raw_date"], reverse=True)
+        
+        # 반환 전 불필요한 _raw_date 키 제거
+        for item in all_news_items:
+            item.pop("_raw_date", None)
+
+        return all_news_items[:5]  # type: ignore
 
     def get_company_analysis(self, company_name, job_title):
         """기업의 인재상(Ideal Candidate) 및 조직문화(Culture)를 개별 키워드 중심으로 심층 분석합니다."""
         analysis_prompt = f"""
-        당신은 전문 채용 컨설턴트입니다. '{company_name}' 기업의 '{job_title}' 직무를 위해 아래 정보를 **개별 특징별로 분절하여** 분석하세요.
+        당신은 전문 채용 컨설턴트 및 기업 분석가입니다. 구직자가 '{company_name}'에 '{job_title}' 직무로 지원하려고 합니다.
         
-        1. 인재상: 기업이 추구하는 핵심 가치와 인재의 모습 (최소 2개 이상의 키워드).
-        2. 조직문화: 일하는 방식, 소통 환경, 의사결정 구조 등 내적 문화 (최소 2개 이상의 키워드). 
-           **주의: 식비, 보험, 휴가 등 '복지 혜택' 관련 내용은 절대 포함하지 마세요.**
+        당신의 임무는 구글 검색 기능을 사용하여 **해당 공고(직무 내용)가 아닌, '{company_name}' 기업 전체의 '공식적인 핵심 가치', '전사적 인재상', '고유의 조직문화'**를 조사하는 것입니다.
+        회사의 공식 홈페이지, 채용 페이지(Careers), 혹은 기업 인터뷰 기사 등을 검색하여 아래 2가지 항목을 '절대 겹치지 않게' 엄격히 구분하여 추출해 주세요.
+        
+        1. 인재상 (사람 중심): '{company_name}'이 직원 개인에게 요구하는 '가치관', '성향', '태도', '마인드셋' (최대 4개까지만 요약).
+           - 예시: "주도적인 실행력", "데이터 기반의 사고", "끊임없는 학습" (개인이 갖춰야 할 특성)
+        2. 조직문화 (환경/시스템 중심): '{company_name}'이라는 조직 전체가 일하는 방식, 팀워크, 의사결정 프로세스, 사내 분위기 (최대 4개까지만 요약). 
+           - 예시: "수평적인 소통", "애자일 기반의 스프린트", "실패를 용인하는 문화" (조직의 환경적 특성)
+           **주의: 식비, 보험, 휴가 등 '단순 복지 혜택' 관련 내용은 절대 포함하지 마세요.**
 
-        반드시 각 항목을 명확한 키워드와 그에 따른 상세 내용으로 구분하여 JSON으로 출력하세요.
+        검색된 실제 기업 공식 자료를 바탕으로, 두 항목의 내용이 중복되지 않도록 명확한 키워드와 그에 따른 상세 내용으로 구분하여 JSON 형태로 정리해 주세요.
         """
         try:
             # 1단계: 검색 기반 기초 분석(Initial Analysis)
-            # 최신 SDK 규격에 맞춰 구글 검색 도구 선언 방식을 수정합니다 (Fix Type Mismatch)
             raw_analysis = self.client.models.generate_content(
-                model=self.model_name,
+                model='gemini-2.5-flash',
                 contents=analysis_prompt,
                 config=types.GenerateContentConfig(
                     tools=[types.Tool(google_search=types.GoogleSearch())]
@@ -105,9 +119,12 @@ class CompanyService:
             {raw_analysis.text}
 
             [작성 규칙(Strict Rules)]:
-            1. **계층 구조**: 반드시 '인재상'과 '조직문화' 각각에 대해 2개 이상의 별도 항목(Object)을 만드세요.
-            2. **내용 집중**: 조직문화 섹션에서 단순 복지(식사, 연차 등)는 **모두 삭제**하고, 조직 고유의 '협업 방식'이나 '소통 철학'만 남기세요.
-            3. **문단 금지**: 전체 내용을 하나의 긴 문단으로 작성하지 말고, 반드시 '키워드'와 '내용'으로 분리된 리스트 형식을 유지하세요.
+            1. **계층 구조**: 반드시 '인재상'과 '조직문화' 각각에 대해 2~4개의 별도 항목(Object)을 만드세요 (절대 4개를 초과하지 않도록 엄격히 제한).
+            2. **명확한 분장 (가장 중요)**: 
+               - '인재상'에는 '개인(사람)의 성향/태도'만 남기세요. 
+               - '조직문화'에는 '회사(팀) 일하는 방식/소통/시스템'만 남기세요. 둘의 내용이 절대 비슷하거나 겹치지 않게 완전히 분리하세요.
+            3. **복지 삭제**: 조직문화 섹션에서 단순 복지(식사, 연차 등)는 **모두 삭제**하세요.
+            4. **문단 금지**: 전체 내용을 하나의 긴 문단으로 작성하지 말고, 반드시 '키워드'와 '내용'으로 분리된 리스트 형식을 유지하세요.
             
             [응답 구조(JSON Format)]:
             {{
@@ -135,9 +152,18 @@ class CompanyService:
             
             parsed_data = json.loads(text)
             
-            # 계층 구조 보장 (Layer Normalization)
+            # 계층 구조 보장 및 각 항목 최대 4개 강제 절단 (Layer Normalization & Slicing)
             if "analysis" in parsed_data:
+                if isinstance(parsed_data["analysis"].get("인재상"), list):
+                    parsed_data["analysis"]["인재상"] = parsed_data["analysis"]["인재상"][:4]
+                if isinstance(parsed_data["analysis"].get("조직문화"), list):
+                    parsed_data["analysis"]["조직문화"] = parsed_data["analysis"]["조직문화"][:4]
                 return parsed_data["analysis"]
+                
+            if isinstance(parsed_data.get("인재상"), list):
+                parsed_data["인재상"] = parsed_data["인재상"][:4]
+            if isinstance(parsed_data.get("조직문화"), list):
+                parsed_data["조직문화"] = parsed_data["조직문화"][:4]
             return parsed_data
         except Exception as e:
             sys.stderr.write(f"\n[Analysis Error] {str(e)}\n")

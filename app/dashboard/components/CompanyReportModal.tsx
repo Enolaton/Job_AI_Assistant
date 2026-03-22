@@ -25,6 +25,17 @@ interface CompanyReportModalProps {
     onRefresh: () => void;
 }
 
+const renderContent = (text: string) => {
+    if (!text) return null;
+    const parts = text.split(/(\*\*.*?\*\*)/g);
+    return parts.map((part, i) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+            return <strong key={i} className="text-slate-900 font-black">{part.slice(2, -2)}</strong>;
+        }
+        return part;
+    });
+};
+
 export default function CompanyReportModal({
     isOpen,
     onClose,
@@ -57,13 +68,6 @@ export default function CompanyReportModal({
                             </div>
                             <div className="flex items-center gap-2">
                                 <button
-                                    onClick={() => onRefresh()}
-                                    className="p-2 text-slate-400 hover:text-blue-600 hover:bg-white rounded-lg transition-all"
-                                    title="새로고침"
-                                >
-                                    <RefreshCw size={20} className={isLoading ? 'animate-spin' : ''} />
-                                </button>
-                                <button
                                     onClick={onClose}
                                     className="p-2 text-slate-400 hover:text-slate-900 hover:bg-white rounded-lg transition-all"
                                 >
@@ -84,89 +88,12 @@ export default function CompanyReportModal({
                                     </div>
                                     <div className="text-center">
                                         <h3 className="text-lg font-black text-slate-900 mb-2">AI가 기업 정보를 분석 중입니다...</h3>
-                                        <p className="text-slate-400 text-sm max-w-xs mx-auto">산업 동향, 최근 뉴스, 인재상 등을 요약하여<br />최적의 자료를 생성하고 있습니다.</p>
+                                        <p className="text-slate-400 text-sm max-w-xs mx-auto">기업 공시, 최근 뉴스, 인재상 등을 요약하여<br />최적의 자료를 생성하고 있습니다.</p>
                                     </div>
                                 </div>
                             ) : data ? (
                                 <div className="space-y-10 animate-in fade-in duration-700">
-                                    {/* DART 기업공시 분석 섹션 */}
-                                    {data.dart && (
-                                        <section>
-                                            <div className="flex items-center gap-2 mb-6">
-                                                <h4 className="text-emerald-600 font-black text-sm uppercase tracking-widest flex items-center gap-2">
-                                                    <BarChart3 size={16} /> DART 기업공시 분석 (AI 요약)
-                                                </h4>
-                                                <div className="h-[1px] bg-emerald-100 flex-1 ml-2"></div>
-                                            </div>
-                                            <div className="grid grid-cols-1 gap-4">
-                                                {/* 사업 개요 */}
-                                                {data.dart.business && (
-                                                    <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-6">
-                                                        <div className="flex items-center gap-2 mb-3">
-                                                            <div className="p-1.5 bg-emerald-100 text-emerald-700 rounded-lg">
-                                                                <TrendingUp size={14} />
-                                                            </div>
-                                                            <h5 className="text-sm font-black text-emerald-900">산업 내 위치 및 핵심 경쟁력</h5>
-                                                        </div>
-                                                        <p className="text-xs text-slate-600 leading-relaxed font-medium whitespace-pre-wrap">{data.dart.business}</p>
-                                                    </div>
-                                                )}
-
-                                                {/* 수익 모델 */}
-                                                {data.dart.products && (
-                                                    <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-6">
-                                                        <div className="flex items-center gap-2 mb-3">
-                                                            <div className="p-1.5 bg-indigo-100 text-indigo-700 rounded-lg">
-                                                                <BusinessIcon size={14} />
-                                                            </div>
-                                                            <h5 className="text-sm font-black text-indigo-900">핵심 수익 모델 (Product)</h5>
-                                                        </div>
-                                                        <p className="text-xs text-slate-600 leading-relaxed font-medium whitespace-pre-wrap">{data.dart.products}</p>
-                                                    </div>
-                                                )}
-
-                                                {/* 재무 요약 */}
-                                                {data.dart.financial && (
-                                                    <div className="bg-amber-50/50 border border-amber-100 rounded-2xl p-6">
-                                                        <div className="flex items-center gap-2 mb-3">
-                                                            <div className="p-1.5 bg-amber-100 text-amber-700 rounded-lg">
-                                                                <PieChart size={14} />
-                                                            </div>
-                                                            <h5 className="text-sm font-black text-amber-900">재무 성장성 및 안정성 ({data.dart.reportYear}년 기준)</h5>
-                                                        </div>
-                                                        <p className="text-xs text-slate-600 leading-relaxed font-medium whitespace-pre-wrap">{data.dart.financial}</p>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </section>
-                                    )}
-
-                                    {/* 조직문화 요약 */}
-                                    <section>
-                                        <div className="flex items-center gap-2 mb-4">
-                                            <h4 className="text-blue-600 font-black text-sm uppercase tracking-widest flex items-center gap-2">
-                                                <Zap size={16} className="fill-blue-600" /> 조직문화 (Culture)
-                                            </h4>
-                                            <div className="h-[1px] bg-blue-100 flex-1 ml-2"></div>
-                                        </div>
-                                        <div className="grid grid-cols-1 gap-3">
-                                            {Array.isArray(data.analysis?.["조직문화"]) && data.analysis["조직문화"].length > 0 ? (
-                                                data.analysis["조직문화"].map((item: any, i: number) => (
-                                                    <div key={i} className="bg-blue-50/50 border border-blue-100 rounded-2xl p-5">
-                                                        <div className="text-blue-900 font-bold text-sm mb-1.5 flex items-center gap-2">
-                                                            <span className="w-5 h-5 bg-blue-100 text-blue-700 text-[10px] font-black rounded-full flex items-center justify-center">{i + 1}</span>
-                                                            {item.키워드}
-                                                        </div>
-                                                        <p className="text-xs text-slate-600 leading-relaxed font-medium">{item.내용}</p>
-                                                    </div>
-                                                ))
-                                            ) : (
-                                                <div className="text-center py-4 text-slate-400 text-xs italic">조직문화 데이터가 없습니다.</div>
-                                            )}
-                                        </div>
-                                    </section>
-
-                                    {/* 인재상 섹션 */}
+                                    {/* 1. 인재상 섹션 */}
                                     <section>
                                         <div className="flex items-center gap-2 mb-4">
                                             <h4 className="text-purple-600 font-black text-sm uppercase tracking-widest flex items-center gap-2">
@@ -191,7 +118,84 @@ export default function CompanyReportModal({
                                         </div>
                                     </section>
 
-                                    {/* 뉴스 */}
+                                    {/* 2. 조직문화 요약 */}
+                                    <section>
+                                        <div className="flex items-center gap-2 mb-4">
+                                            <h4 className="text-blue-600 font-black text-sm uppercase tracking-widest flex items-center gap-2">
+                                                <Zap size={16} className="fill-blue-600" /> 조직문화 (Culture)
+                                            </h4>
+                                            <div className="h-[1px] bg-blue-100 flex-1 ml-2"></div>
+                                        </div>
+                                        <div className="grid grid-cols-1 gap-3">
+                                            {Array.isArray(data.analysis?.["조직문화"]) && data.analysis["조직문화"].length > 0 ? (
+                                                data.analysis["조직문화"].map((item: any, i: number) => (
+                                                    <div key={i} className="bg-blue-50/50 border border-blue-100 rounded-2xl p-5">
+                                                        <div className="text-blue-900 font-bold text-sm mb-1.5 flex items-center gap-2">
+                                                            <span className="w-5 h-5 bg-blue-100 text-blue-700 text-[10px] font-black rounded-full flex items-center justify-center">{i + 1}</span>
+                                                            {item.키워드}
+                                                        </div>
+                                                        <p className="text-xs text-slate-600 leading-relaxed font-medium">{item.내용}</p>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div className="text-center py-4 text-slate-400 text-xs italic">조직문화 데이터가 없습니다.</div>
+                                            )}
+                                        </div>
+                                    </section>
+
+                                    {/* 3. DART 기업공시 분석 섹션 */}
+                                    {data.dart && (
+                                        <section>
+                                            <div className="flex items-center gap-2 mb-6">
+                                                <h4 className="text-emerald-600 font-black text-sm uppercase tracking-widest flex items-center gap-2">
+                                                    <BarChart3 size={16} /> DART 기업공시 분석 (AI 요약)
+                                                </h4>
+                                                <div className="h-[1px] bg-emerald-100 flex-1 ml-2"></div>
+                                            </div>
+                                            <div className="grid grid-cols-1 gap-4">
+                                                {/* 사업 개요 */}
+                                                {data.dart.business && (
+                                                    <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-6">
+                                                        <div className="flex items-center gap-2 mb-3">
+                                                            <div className="p-1.5 bg-emerald-100 text-emerald-700 rounded-lg">
+                                                                <TrendingUp size={14} />
+                                                            </div>
+                                                            <h5 className="text-sm font-black text-emerald-900">산업 내 위치 및 핵심 경쟁력</h5>
+                                                        </div>
+                                                        <p className="text-xs text-slate-600 leading-relaxed font-medium whitespace-pre-wrap">{renderContent(data.dart.business)}</p>
+                                                    </div>
+                                                )}
+
+                                                {/* 수익 모델 */}
+                                                {data.dart.products && (
+                                                    <div className="bg-indigo-50/50 border border-indigo-100 rounded-2xl p-6">
+                                                        <div className="flex items-center gap-2 mb-3">
+                                                            <div className="p-1.5 bg-indigo-100 text-indigo-700 rounded-lg">
+                                                                <BusinessIcon size={14} />
+                                                            </div>
+                                                            <h5 className="text-sm font-black text-indigo-900">핵심 수익 모델 (Product)</h5>
+                                                        </div>
+                                                        <p className="text-xs text-slate-600 leading-relaxed font-medium whitespace-pre-wrap">{renderContent(data.dart.products)}</p>
+                                                    </div>
+                                                )}
+
+                                                {/* 재무 요약 */}
+                                                {data.dart.financial && (
+                                                    <div className="bg-amber-50/50 border border-amber-100 rounded-2xl p-6">
+                                                        <div className="flex items-center gap-2 mb-3">
+                                                            <div className="p-1.5 bg-amber-100 text-amber-700 rounded-lg">
+                                                                <PieChart size={14} />
+                                                            </div>
+                                                            <h5 className="text-sm font-black text-amber-900">재무 성장성 및 안정성 ({data.dart.reportYear}년 기준)</h5>
+                                                        </div>
+                                                        <p className="text-xs text-slate-600 leading-relaxed font-medium whitespace-pre-wrap">{renderContent(data.dart.financial)}</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </section>
+                                    )}
+
+                                    {/* 4. 뉴스 */}
                                     <section>
                                         <div className="flex items-center gap-2 mb-4">
                                             <h4 className="text-orange-600 font-black text-sm uppercase tracking-widest flex items-center gap-2">
