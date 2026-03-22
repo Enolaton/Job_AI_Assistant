@@ -3,20 +3,138 @@ import sys
 import time
 import base64
 import json
-import psycopg2  # type: ignore
-from urllib.parse import urlparse
-from typing import Union
+import re
+import requests
+import zipfile
+import io
+import pandas as pd
+from datetime import datetime, timedelta
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+import urllib3
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 
-from dotenv import load_dotenv  # type: ignore
-from selenium import webdriver  # type: ignore
-from selenium.webdriver.chrome.options import Options  # type: ignore
-from selenium.webdriver.common.by import By  # type: ignore
-from google import genai  # type: ignore
-from google.genai import types  # type: ignore
-from google.cloud import vision  # type: ignore
+# 경고 메시지 차단
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+
+from dotenv import load_dotenv
+try:
+    from google import genai
+    from google.genai import types
+except ImportError:
+    sys.stderr.write("오류: google-genai 라이브러리가 설치되지 않았습니다.\n")
 
 load_dotenv()
+
+# --- 설정 및 경로 ---
+# 파일 위치가 app/ 폴더이므로 BASE_DIR은 프로젝트 루트가 됨
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CSV_PATH = os.path.join(BASE_DIR, "dart", "dart_corp_codes.csv")
+DART_API_KEY = os.getenv("DART_API_KEY")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+# ─────────────────────────────────────────────
+# [모듈 1] DART 분석 엔진 (원본 복원 로직)
+# ─────────────────────────────────────────────
+
+def clean_company_name(name):
+    if not name: return ""
+    name = re.sub(r"\(주\)|㈜|주식회사|유한회사|\(유\)", "", name)
+    return name.strip()
+
+def match_phase1(company_name):
+    if not os.path.exists(CSV_PATH):
+        sys.stderr.write(f"경고: 데이터 파일이 없습니다 ({CSV_PATH})\n")
+        return None
+    try:
+        df = pd.read_csv(CSV_PATH, dtype={'corp_code': str})
+        cleaned_target = clean_company_name(company_name)
+        match = df[df['corp_name'] == cleaned_target]
+        if not match.empty: return match.iloc[0]['corp_code']
+        match = df[df['corp_name'].str.contains(cleaned_target, na=False)]
+        if not match.empty: return match.iloc[0]['corp_code']
+    except: pass
+    return None
+
+def get_recent_business_report_no(corp_code):
+    url = "https://opendart.fss.or.kr/api/list.json"
+    end_date = datetime.now().strftime('%Y%m%d')
+    start_date = (datetime.now() - timedelta(days=1095)).strftime('%Y%m%d')
+    
+    params = {
+        'crtfc_key': DART_API_KEY,
+        'corp_code': corp_code,
+        'bgn_de': start_date,
+        'end_de': end_date,
+        'page_count': '20' # 더 넓게 탐색
+    }
+    try:
+        res = requests.get(url, params=params, verify=False, timeout=15)
+        data = res.json()
+        if data.get('status') == '000' and data.get('list'):
+            # 우선순위 정의 (사업 > 반기 > 분기 > 감사)
+            priorities = ['사업보고서', '반기보고서', '분기보고서', '감사보고서']
+            
+            for priority in priorities:
+                for item in data['list']:
+                    report_nm = item.get('report_nm', '')
+                    if priority in report_nm:
+                        return item['rcept_no'], report_nm.split('(')[0].strip()
+    except Exception as e:
+        sys.stderr.write(f"DART 조회 에러: {e}\n")
+    return None, None
+
+def summarize_with_genai_dart(text, section_type):
+    if not text or len(text) < 100: return "분석할 내용이 부족합니다."
+    client = genai.Client(api_key=GOOGLE_API_KEY)
+    prompts = {
+        "business": "취업 준비생을 위한 사업 경쟁력 3줄 요약.",
+        "products": "수익 모델과 주요 서비스 3줄 요약.",
+        "financial": "재무 건전성과 연도별 실적 3줄 요약."
+    }
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=f"{prompts.get(section_type, '핵심 요약')}\n\n내용:\n{text[:15000]}"
+        )
+        return response.text.strip()
+    except: return "요약 생성 오류"
+
+def analyze_dart_integrated(company_name):
+    corp_code = match_phase1(company_name)
+    if not corp_code: return {"status": "error", "message": "기업 코드를 찾을 수 없습니다."}
+    
+    rcept_no, report_nm = get_recent_business_report_no(corp_code)
+    if not rcept_no: return {"status": "error", "message": "최신 공고 보고서가 없습니다."}
+    
+    url = f"https://opendart.fss.or.kr/api/document.xml?crtfc_key={DART_API_KEY}&rcept_no={rcept_no}"
+    try:
+        res = requests.get(url, verify=False, timeout=30)
+        with zipfile.ZipFile(io.BytesIO(res.content)) as z:
+            with z.open(z.namelist()[0]) as f:
+                soup = BeautifulSoup(f.read(), "html.parser")
+                full_text = soup.get_text()
+                return {
+                    "status": "success",
+                    "company_name": company_name,
+                    "report_year": report_nm.split(' ')[0] if report_nm else "",
+                    "business": summarize_with_genai_dart(full_text, "business"),
+                    "products": summarize_with_genai_dart(full_text, "products"),
+                    "financial": summarize_with_genai_dart(full_text, "financial")
+                }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+# ─────────────────────────────────────────────
+# [모듈 2] JD 분석 엔진 (기본 로직 유지)
+# ─────────────────────────────────────────────
+
+from urllib.parse import urlparse
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from google.cloud import vision
 
 # --- 공고 사이트별 정밀 셀렉터 설정 ---
 SITE_SELECTORS = {
@@ -50,9 +168,9 @@ SITE_SELECTORS = {
     ]
 }
 
-def get_full_page_screenshot(url: str) -> tuple[Union[bytes, None], str, str]:
+def get_full_page_screenshot(url):
     """사이트별 정밀 셀렉터를 활용하여 공고 본문 영역만 타겟팅하여 캡처."""
-    print(f"▶ URL 접속 중: {url}", file=sys.stderr)
+    sys.stderr.write(f"[JD 캡처] URL 접속 중: {url}\n")
     
     chrome_options = Options()
     chrome_options.add_argument("--headless=new")
@@ -76,7 +194,7 @@ def get_full_page_screenshot(url: str) -> tuple[Union[bytes, None], str, str]:
         try:
             top_text = driver.find_element(By.TAG_NAME, "body").text[:1000]
         except Exception: pass
-
+        
         # 2. 기초 노이즈 제거 (사이트 공통 및 사람인/잡코리아 특화)
         cleanup_js = """
         const noises = [
@@ -114,7 +232,7 @@ def get_full_page_screenshot(url: str) -> tuple[Union[bytes, None], str, str]:
         """
         driver.execute_script(cleanup_js)
 
-        # 3. 사이트별 정밀 영역 찾기
+        # 2. 사이트별 정밀 영역 찾기
         target_selectors = []
         for key in SITE_SELECTORS:
             if key in domain:
@@ -127,11 +245,11 @@ def get_full_page_screenshot(url: str) -> tuple[Union[bytes, None], str, str]:
                 el = driver.find_element(By.CSS_SELECTOR, sel)
                 if el.is_displayed() and el.size['height'] > 200:
                     target_el = el
-                    print(f"   🎯 정밀 영역 감지 성공: {sel}", file=sys.stderr)
+                    sys.stderr.write(f"[JD 캡처] 정밀 영역 감지 성공: {sel}\n")
                     break
             except: continue
 
-        # 4. Iframe (공고 본문) 처리 - 정밀 영역 못 찾았을 때의 폴백
+        # 3. Iframe (공고 본문) 처리 - 정밀 영역 못 찾았을 때의 폴백
         if not target_el:
             target_iframe_selectors = [
                 "#iframe_content_0", 
@@ -145,20 +263,20 @@ def get_full_page_screenshot(url: str) -> tuple[Union[bytes, None], str, str]:
                 try:
                     found_iframe = driver.find_element(By.CSS_SELECTOR, selector)
                     if found_iframe:
-                        print(f"   📦 본문 Iframe 감지.", file=sys.stderr)
+                        sys.stderr.write("[JD 캡처] 본문 Iframe 감지.\n")
                         target_el = found_iframe # Iframe을 타겟으로 설정
                         break
                 except: continue
 
-        # 5. 타겟 영역 이미지 로딩 및 크기 측정
+        # 4. 타겟 영역 이미지 로딩 및 크기 측정
         if target_el:
-            # 5-1. 먼저 뷰포트 크기를 고정하여 레이아웃을 안정화 (가로 1280 기준)
+            # 4-1. 먼저 뷰포트 크기를 고정하여 레이아웃을 안정화 (가로 1280 기준)
             driver.execute_cdp_cmd("Emulation.setDeviceMetricsOverride", {
                 "width": 1280, "height": 2000, "deviceScaleFactor": 1, "mobile": False
             })
             time.sleep(1) # 레이아웃 재배치 대기
 
-            # 5-2. 고정된 가로 너비(1280) 상태에서 정확한 좌표 측정
+            # 4-2. 고정된 가로 너비(1280) 상태에서 정확한 좌표 측정
             rect = driver.execute_script("""
                 const el = arguments[0];
                 el.scrollIntoView();
@@ -171,7 +289,7 @@ def get_full_page_screenshot(url: str) -> tuple[Union[bytes, None], str, str]:
                 };
             """, target_el)
             
-            # 5-3. 긴 이미지 대비 점진적 스크롤 (이미지 로딩 유도)
+            # 4-3. 긴 이미지 대비 점진적 스크롤 (이미지 로딩 유도)
             curr = rect['y']
             limit = rect['y'] + rect['height']
             while curr < limit:
@@ -183,8 +301,8 @@ def get_full_page_screenshot(url: str) -> tuple[Union[bytes, None], str, str]:
             driver.execute_script(f"window.scrollTo(0, {rect['y']});")
             time.sleep(1)
 
-            # 6. CDP 정밀 캡처 (클리핑)
-            print(f"📸 본문 정밀 캡처 ([X:{int(rect['x'])}] {int(rect['width'])} x {int(rect['height'])})", file=sys.stderr)
+            # 5. CDP 정밀 캡처 (클리핑)
+            sys.stderr.write(f"[JD 캡처] 본문 정밀 캡처 ([X:{int(rect['x'])}] {int(rect['width'])} x {int(rect['height'])})\n")
             
             # 최종 높이에 맞춰 다시 한번 메트릭 설정 (잘림 방지)
             driver.execute_cdp_cmd("Emulation.setDeviceMetricsOverride", {
@@ -210,7 +328,7 @@ def get_full_page_screenshot(url: str) -> tuple[Union[bytes, None], str, str]:
             return base64.b64decode(result['data']), top_text, driver.current_url
 
         # --- 정밀 영역을 못 찾은 경우의 기존 폴백 로직 ---
-        print("⚠️ 정밀 영역 탐색 실패, 전체 페이지 폴백 실행", file=sys.stderr)
+        sys.stderr.write("[JD 캡처] 정밀 영역 탐색 실패, 전체 페이지 폴백 실행\n")
         total_h = driver.execute_script("return document.documentElement.scrollHeight")
         curr_h = 0
         while curr_h < total_h:
@@ -233,29 +351,24 @@ def get_full_page_screenshot(url: str) -> tuple[Union[bytes, None], str, str]:
         return base64.b64decode(result['data']), top_text, driver.current_url
 
     except Exception as e:
-        print(f"❌ 캡처 중 오류: {e}", file=sys.stderr)
+        sys.stderr.write(f"[JD 캡처] 캡처 중 오류: {e}\n")
         return None, "", url
     finally:
         driver.quit()
-    return None, "", url
 
-def extract_text_with_google_vision(image_bytes: bytes) -> str:
-    """스크린샷 이미지를 Google Cloud Vision API로 OCR하여 텍스트 추출."""
-    try:
-        client = vision.ImageAnnotatorClient()
-        image = vision.Image(content=image_bytes)
-        response = client.document_text_detection(image=image)
-        if response.error.message: raise Exception(f"{response.error.message}")
-        if response.text_annotations: 
-            return response.text_annotations[0].description
-        return ""
-    except Exception as e:
-        print(f"OCR 오류: {e}", file=sys.stderr)
-        return ""
+def extract_text_with_google_vision(image_bytes):
+    client = vision.ImageAnnotatorClient()
+    image = vision.Image(content=image_bytes)
+    response = client.document_text_detection(image=image)
+    return response.text_annotations[0].description if response.text_annotations else ""
+
+# ─────────────────────────────────────────────
+# [모듈 3] 고도화 병렬 분석 엔진 (old_analysis_JD 이식)
+# ─────────────────────────────────────────────
 
 def get_job_roles_and_metadata(ocr_text: str) -> dict:
     """공고에서 전체 공통 사항(회사명, 기간)과 직무 목록을 먼저 추출."""
-    client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+    client = genai.Client(api_key=GOOGLE_API_KEY)
     
     system_prompt = (
         "You are a senior Korean recruitment analyst specializing in parsing job postings (채용공고).\n"
@@ -308,22 +421,20 @@ def get_job_roles_and_metadata(ocr_text: str) -> dict:
         contents=f"{system_prompt}\n\nUSER INPUT OCR TEXT:\n{ocr_text}",
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_schema=schema
+            response_schema=schema,
+            temperature=0.0
         )
     )
     return json.loads(response.text)
 
 def slice_job_text(ocr_text: str, current_role: dict, next_role_anchor: str, common_anchor: str, search_from: int = 0) -> tuple[str, int]:
-    """OCR 텍스트에서 해당 직무에 해당하는 부분만 물리적으로 잘라냄.
-    search_from을 통해 이전 직무 이후부터 검색하여 중복 앵커 문제 해결."""
+    """OCR 텍스트에서 해당 직무에 해당하는 부분만 물리적으로 잘라냄."""
     start_anchor = current_role['anchor_sentence']
     
-    # 시작점 찾기 (search_from 이후부터)
     start_idx = ocr_text.find(start_anchor, search_from)
     if start_idx == -1:
-        return ocr_text, search_from # 못 찾으면 전체 반환
+        return ocr_text, search_from
         
-    # 끝점 후보 (다음 직무 시작점 또는 공통 영역 시작점)
     end_indices = []
     if next_role_anchor:
         idx = ocr_text.find(next_role_anchor, start_idx + len(start_anchor))
@@ -333,10 +444,8 @@ def slice_job_text(ocr_text: str, current_role: dict, next_role_anchor: str, com
         idx = ocr_text.find(common_anchor, start_idx + len(start_anchor))
         if idx != -1: end_indices.append(idx)
         
-    # 가장 먼저 나오는 끝점 선택
     end_idx = min(end_indices) if end_indices else len(ocr_text)
     
-    # 해당 직무 텍스트 + 공통 영역(있다면) 결합
     s_idx = int(start_idx)
     e_idx = int(end_idx)
     sliced_main = ocr_text[s_idx:e_idx]  # type: ignore
@@ -350,7 +459,7 @@ def slice_job_text(ocr_text: str, current_role: dict, next_role_anchor: str, com
 
 def analyze_individual_job(sliced_text: str, job_title: str, common_meta: dict, all_roles: list = []) -> dict:
     """물리적으로 잘려진 텍스트 조각에서 상세 정보를 추출."""
-    client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+    client = genai.Client(api_key=GOOGLE_API_KEY)
     
     fields_mapping = {
         "company_name": "회사명", "recruitment_field": "모집부문", "job_title": "모집직무",
@@ -385,9 +494,10 @@ def analyze_individual_job(sliced_text: str, job_title: str, common_meta: dict, 
         "   **CRITICAL: DO NOT merge conditions into one line. Each condition MUST be on its own NEW line starting with '- '.** "
         "   Look for: '자격요건', '필수요건', '지원자격', 'Requirements'. "
         "   Include years of experience, certifications, technical skills, etc. "
-        "   CRITICAL: Regarding education, ONLY include it if it explicitly requires '석사 이상' (Master's or higher) or a specific major like '~전공 또는 그에 준하는 전공자' (Major in ... or equivalent). "
+        "   CRITICAL 1: Regarding education, ONLY include it if it explicitly requires '석사 이상' (Master's or higher) or a specific major like '~전공 또는 그에 준하는 전공자' (Major in ... or equivalent). "
         "   If it says '학력무관' (Education irrelevant), '대졸' (Bachelor's), or lacks specialized major requirements, EXCLUDE the education-related bullet point. "
-        "   Be EXHAUSTIVE for other requirements. Every single bullet point matters.\n"
+        "   CRITICAL 2: Regarding experience, if it says '경력무관' or '신입/경력무관' (Experience irrelevant), entirely EXCLUDE the experience-related bullet points. Only include explicitly stated required experience (e.g., '3년 이상'). "
+        "   Be EXHAUSTIVE for other actual requirements. Every single bullet point matters.\n"
         "6. preferred_qualifications (우대사항): List ALL preferred/optional qualifications. "
         "   **CRITICAL: Each item MUST be on a NEW line starting with '- '.** "
         "   Look for: '우대사항', '우대조건', '우대요건', 'Preferred', '가산점'. "
@@ -425,7 +535,8 @@ def analyze_individual_job(sliced_text: str, job_title: str, common_meta: dict, 
         contents=f"{system_prompt}\n\nUSER INPUT OCR TEXT:\n{sliced_text}",
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_schema=schema
+            response_schema=schema,
+            temperature=0.0
         )
     )
     
@@ -447,7 +558,7 @@ def analyze_individual_job(sliced_text: str, job_title: str, common_meta: dict, 
 def summarize_with_openai(ocr_text: str) -> list:
     """메타데이터 추출 후 모든 직무를 병렬로 상세 분석함."""
     try:
-        # Step 1: 직무 목록 및 앵커 정보 추출
+        sys.stderr.write("[JD 분석] 공고 내 직무 목록 앵커 검출 중...\n")
         meta_data = get_job_roles_and_metadata(ocr_text)
         roles_info = meta_data.get("role_details", [])
         common_anchor = meta_data.get("common_section_anchor", "")
@@ -455,55 +566,74 @@ def summarize_with_openai(ocr_text: str) -> list:
         if not roles_info:
             return []
 
-        # Step 2: 각 직무별 물리적 슬라이싱 및 병렬 분석 실행
         results = []
         current_pos = 0
+        sys.stderr.write(f"[JD 분석] {len(roles_info)}개의 직무 텍스트 물리적 분할 및 병렬 분석 시작...\n")
         with ThreadPoolExecutor() as executor:
             temp_tasks = []
             for i, role in enumerate(roles_info):
                 next_anchor = roles_info[i+1]['anchor_sentence'] if i+1 < len(roles_info) else ""
-                
-                # 텍스트 물리적 커팅 및 다음 검색 시작 위치 갱신
                 sliced_text, next_pos = slice_job_text(ocr_text, role, next_anchor, common_anchor, current_pos)
                 current_pos = next_pos
-                
                 temp_tasks.append((sliced_text, role['title']))
                 
             futures = [executor.submit(analyze_individual_job, t[0], t[1], meta_data, roles_info) for t in temp_tasks]  # type: ignore
             results = [f.result() for f in futures]
             
-        # 빈 결과 필터링
         return [r for r in results if r]
     except Exception as e:
-        print(f"AI 분석 중 오류: {e}", file=sys.stderr)
+        sys.stderr.write(f"[오류] AI 병렬 분석 중 오류 발생: {e}\n")
         return []
 
-def main() -> None:
-    if sys.stdout.encoding.lower() != 'utf-8':
-        reconf = getattr(sys.stdout, 'reconfigure', None)
-        if reconf:
-            reconf(encoding='utf-8')
-        
+# ─────────────────────────────────────────────
+# [메인 엔진] 통합 처리 로직
+# ─────────────────────────────────────────────
+
+def main():
     if len(sys.argv) < 2: sys.exit(1)
-    url = sys.argv[1].strip()
+    input_value = sys.argv[1].strip()
+    
+    # 입력값이 URL인지 기업명인지 판단
+    is_url = input_value.startswith("http")
     
     try:
-        screenshot_bytes, top_text, final_url = get_full_page_screenshot(url)
-        if screenshot_bytes is None or not isinstance(screenshot_bytes, bytes):
-            sys.exit(1)
-        
-        
-        ocr_text = extract_text_with_google_vision(screenshot_bytes)  # type: ignore
-        if not ocr_text.strip():
-            sys.exit(1)
-        
-        combined_text = f"URL: {final_url}\nMETA:\n{top_text}\n\nBODY:\n{ocr_text}"
-        structured = summarize_with_openai(combined_text)
-        
-        print(json.dumps({"raw_text": ocr_text, "structured": structured}, ensure_ascii=False))
+        if is_url:
+            # [CASE 1] 채용공고 URL 분석 모드
+            sys.stderr.write(f"[JD 분석] 공고 페이지 접속 중... ({input_value})\n")
+            screenshot, top_text, final_url = get_full_page_screenshot(input_value)
+            
+            if screenshot is None:
+                sys.stderr.write("[오류] 스크린샷 캡처 실패\n")
+                raise Exception("스크린샷 캡처 실패")
+
+            sys.stderr.write("[JD 분석] 이미지 텍스트 추출 중(OCR)...\n")
+            ocr_text = extract_text_with_google_vision(screenshot)
+            
+            # 고도화된 물리적 절단 및 스레드 병렬 분석 프로세스로 교체
+            combined_text = f"URL: {final_url}\nMETA:\n{top_text}\n\nBODY:\n{ocr_text}"
+            structured_roles = summarize_with_openai(combined_text)
+            company_name = structured_roles[0].get('회사명', '알 수 없음') if structured_roles else '알 수 없음'
+
+            sys.stderr.write(f"[JD 분석] DART 기업 정보 연동 중... ({company_name})\n")
+            # DART 분석 수행
+            dart_result = analyze_dart_integrated(company_name)
+            
+            sys.stderr.write("[JD 분석] 모든 분석 완료. 결과 출력 중...\n")
+            # 백엔드(route.ts)가 기대하는 규격(raw_text, structured)으로 출력 보정
+            print(json.dumps({
+                "raw_text": ocr_text,
+                "structured": structured_roles,
+                "company_name": company_name,
+                "dart": dart_result
+            }, ensure_ascii=False))
+            
+        else:
+            # [CASE 2] 순수 기업 분석 모드 (DART 전용)
+            dart_result = analyze_dart_integrated(input_value)
+            print(json.dumps(dart_result, ensure_ascii=False))
 
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
+        print(json.dumps({"status": "error", "message": str(e)}))
         sys.exit(1)
 
 if __name__ == "__main__":

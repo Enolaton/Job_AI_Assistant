@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { 
-    Edit3, 
-    ChevronRight, 
-    ArrowLeft, 
-    Target, 
-    ArrowRight, 
-    PlusCircle, 
-    Save, 
-    X, 
-    Loader2, 
-    Zap, 
-    Rocket, 
+import {
+    Edit3,
+    ChevronRight,
+    ArrowLeft,
+    Target,
+    ArrowRight,
+    PlusCircle,
+    Save,
+    X,
+    Loader2,
+    Zap,
+    Rocket,
     Sparkles,
     ShieldAlert,
     Briefcase,
@@ -45,9 +45,9 @@ const STATUS_CONFIG: Record<DocStatus, { label: string, color: string, bg: strin
     '지원완료': { label: '지원완료', color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-200', icon: <Rocket size={10} /> },
 };
 
-export default function WorkspaceView({ 
+export default function WorkspaceView({
     onViewChange,
-    onOpenCompanyReport 
+    onOpenCompanyReport
 }: WorkspaceViewProps) {
     const [view, setView] = useState<'list' | 'editor'>('list');
     const [documents, setDocuments] = useState<any[]>([]);
@@ -62,6 +62,7 @@ export default function WorkspaceView({
     const [isTargetModalOpen, setIsTargetModalOpen] = useState(false);
     const [isEditQuestionOpen, setIsEditQuestionOpen] = useState(false);
     const [history, setHistory] = useState<any[]>([]);
+    const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
 
     useEffect(() => {
         if (view === 'list') {
@@ -102,7 +103,7 @@ export default function WorkspaceView({
             contents: [''],
             charLimits: [700]
         };
-        
+
         try {
             const res = await fetch('/api/workspace', {
                 method: 'POST',
@@ -126,6 +127,7 @@ export default function WorkspaceView({
             const data = await res.json();
             if (data.draft) {
                 setCurrentDoc(data.draft);
+                setLastSavedAt(new Date(data.draft.updatedAt));
                 setActiveTab(0);
                 setView('editor');
             }
@@ -138,7 +140,7 @@ export default function WorkspaceView({
 
     const handleDeleteDocument = async (id: string) => {
         if (!window.confirm('이 자기소개서를 삭제하시겠습니까? 삭제된 문서는 복구할 수 없습니다.')) return;
-        
+
         try {
             const res = await fetch(`/api/workspace?id=${id}`, {
                 method: 'DELETE'
@@ -155,17 +157,18 @@ export default function WorkspaceView({
         }
     };
 
-    const handleSave = async (silent = false) => {
-        if (!currentDoc) return;
+    const handleSave = async (docToSave = currentDoc, silent = false) => {
+        if (!docToSave) return;
         try {
             const res = await fetch('/api/workspace', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(currentDoc)
+                body: JSON.stringify(docToSave)
             });
             const data = await res.json();
             if (data.success) {
                 if (!silent) toast.success('저장되었습니다.');
+                setLastSavedAt(new Date());
                 fetchDocuments();
             }
         } catch (error) {
@@ -209,25 +212,33 @@ export default function WorkspaceView({
         const updatedDoc = {
             ...currentDoc,
             companyName: item.companyName,
-            jobTitle: selectedRole?.roleTitle || selectedRole?.모집직무 || '직무 미지정',
+            jobTitle: selectedRole?.roleTitle || selectedRole?.모집직무 || selectedRole?.모집부문 || selectedRole?.직무 || selectedRole?.title || '직무 미지정',
             analysisId: item.id,
             roleId: selectedRole?.id || null
         };
         setCurrentDoc(updatedDoc);
         setIsTargetModalOpen(false);
         toast.success(`'${item.companyName}' 공고와 연결되었습니다.`);
+        
+        // 즉시 저장
+        handleSave(updatedDoc, true);
     };
 
     const handleManualTarget = (company: string, job: string) => {
         if (!currentDoc) return;
-        setCurrentDoc({
+        const updatedDoc = {
             ...currentDoc,
             companyName: company,
             jobTitle: job,
             analysisId: null,
             roleId: null
-        });
+        };
+        setCurrentDoc(updatedDoc);
         setIsTargetModalOpen(false);
+        toast.success('지원 정보가 설정되었습니다.');
+        
+        // 즉시 저장
+        handleSave(updatedDoc, true);
     };
 
     const handleQuickStatusChange = async (docId: string, newStatus: DocStatus) => {
@@ -236,10 +247,10 @@ export default function WorkspaceView({
             // 여기서는 문서를 가져와서 상태만 바꿔서 다시 저장하거나, 전용 API가 있다면 좋지만 
             // 현재 구조상 전체 데이터를 보내야 하므로, 목록 상태를 먼저 바꾸고 서버에 알림
             setDocuments(prev => prev.map(d => d.id === docId ? { ...d, status: newStatus } : d));
-            
+
             // 상세 정보를 가져와서 업데이트하거나 전용 필드 업데이트 API 호출 (여기서는 간단히 처리)
             toast.success(`상태가 '${newStatus}'(으)로 변경되었습니다.`);
-            
+
             // 실제 서버 반영 (상태만 업데이트하는 로직이 필요할 수 있음)
             // 임시로 fetchDocuments를 다시 호출하여 정합성 유지
             const res = await fetch('/api/workspace', {
@@ -261,11 +272,11 @@ export default function WorkspaceView({
         const newTabs = [...currentDoc.tabs];
         const newQuestions = [...currentDoc.questions];
         const newLimits = [...currentDoc.charLimits];
-        
+
         newTabs[activeTab] = data.title;
         newQuestions[activeTab] = data.description;
         newLimits[activeTab] = data.limit;
-        
+
         setCurrentDoc({
             ...currentDoc,
             tabs: newTabs,
@@ -286,7 +297,7 @@ export default function WorkspaceView({
                             <h2 className="text-3xl font-black tracking-tight text-slate-900">내 자기소개서</h2>
                             <p className="text-sm text-slate-500 mt-1">나만의 커리어 자산을 드라이브 형식으로 관리하세요.</p>
                         </div>
-                        <button 
+                        <button
                             onClick={handleCreateNew}
                             className="flex items-center gap-2 px-6 py-3 bg-black text-white rounded-2xl font-bold hover:opacity-80 transition-all shadow-xl shadow-slate-200"
                         >
@@ -309,7 +320,7 @@ export default function WorkspaceView({
                                 <h3 className="text-xl font-black text-slate-900">비어있는 드라이브</h3>
                                 <p className="text-slate-500 max-w-sm">첫 번째 자기소개서를 만들어 나만의 커리어 자산을 쌓아보세요.</p>
                             </div>
-                            <button 
+                            <button
                                 onClick={handleCreateNew}
                                 className="px-8 py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-black transition-all"
                             >
@@ -345,8 +356,8 @@ export default function WorkspaceView({
                                                 <div className={cn(
                                                     "absolute left-3 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full",
                                                     doc.status === '작성전' ? "bg-slate-400" :
-                                                    doc.status === '작성중' ? "bg-orange-500 animate-pulse" :
-                                                    doc.status === '작성완료' ? "bg-emerald-500" : "bg-blue-500"
+                                                        doc.status === '작성중' ? "bg-orange-500 animate-pulse" :
+                                                            doc.status === '작성완료' ? "bg-emerald-500" : "bg-blue-500"
                                                 )} />
                                                 {doc.status}
                                                 <ChevronDown size={10} strokeWidth={3} className={cn("transition-transform", openStatusMenu === doc.id && "rotate-180")} />
@@ -356,9 +367,9 @@ export default function WorkspaceView({
                                                 {openStatusMenu === doc.id && (
                                                     <>
                                                         {/* 메뉴 외부 클릭 시 닫기 위한 오버레이 */}
-                                                        <div 
-                                                            className="fixed inset-0 z-40" 
-                                                            onClick={() => setOpenStatusMenu(null)} 
+                                                        <div
+                                                            className="fixed inset-0 z-40"
+                                                            onClick={() => setOpenStatusMenu(null)}
                                                         />
                                                         <motion.div
                                                             initial={{ opacity: 0, scale: 0.8, y: -10 }}
@@ -376,16 +387,16 @@ export default function WorkspaceView({
                                                                         onClick={() => handleQuickStatusChange(doc.id, status as DocStatus)}
                                                                         className={cn(
                                                                             "flex items-center gap-2 px-3 py-2 rounded-2xl text-[10px] font-bold transition-all text-left",
-                                                                            isSelected 
-                                                                                ? `${config.bg} ${config.color} shadow-sm` 
+                                                                            isSelected
+                                                                                ? `${config.bg} ${config.color} shadow-sm`
                                                                                 : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
                                                                         )}
                                                                     >
                                                                         <div className={cn(
                                                                             "w-1.5 h-1.5 rounded-full",
                                                                             status === '작성전' ? "bg-slate-400" :
-                                                                            status === '작성중' ? "bg-orange-500" :
-                                                                            status === '작성완료' ? "bg-emerald-500" : "bg-blue-500"
+                                                                                status === '작성중' ? "bg-orange-500" :
+                                                                                    status === '작성완료' ? "bg-emerald-500" : "bg-blue-500"
                                                                         )} />
                                                                         {status}
                                                                     </button>
@@ -425,7 +436,7 @@ export default function WorkspaceView({
                                             </span>
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            <button 
+                                            <button
                                                 onClick={(e) => { e.stopPropagation(); handleDeleteDocument(doc.id); }}
                                                 className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 hover:bg-rose-50 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"
                                                 title="삭제"
@@ -457,7 +468,7 @@ export default function WorkspaceView({
             {/* Header */}
             <div className="h-16 border-b border-slate-100 flex items-center justify-between px-6 shrink-0 bg-white/80 backdrop-blur-md z-10 transition-all">
                 <div className="flex items-center gap-4">
-                    <button 
+                    <button
                         onClick={() => setView('list')}
                         className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-900 transition-all"
                     >
@@ -468,16 +479,16 @@ export default function WorkspaceView({
                             <span className="text-sm font-medium text-slate-400">내 자소서</span>
                             <span className="text-slate-300">/</span>
                             <div className="relative group/title">
-                                <input 
+                                <input
                                     type="text"
                                     value={currentDoc.name}
-                                    onChange={(e) => setCurrentDoc({...currentDoc, name: e.target.value})}
+                                    onChange={(e) => setCurrentDoc({ ...currentDoc, name: e.target.value })}
                                     className="text-lg font-black text-slate-900 outline-none bg-transparent border-b border-transparent focus:border-slate-200 transition-all"
                                 />
                             </div>
                         </div>
                         <div className="h-4 w-[1px] bg-slate-200 mx-2" />
-                        <button 
+                        <button
                             onClick={() => setIsTargetModalOpen(true)}
                             className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 rounded-xl transition-all group"
                         >
@@ -490,11 +501,15 @@ export default function WorkspaceView({
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
-                    <div className="hidden md:flex items-center gap-2 mr-4">
-                        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                        <span className="text-xs font-bold text-slate-400">자동 저장됨</span>
-                    </div>
-                    <button 
+                    {lastSavedAt && (
+                        <div className="hidden md:flex items-center gap-2 mr-4">
+                            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                            <span className="text-xs font-bold text-slate-400">
+                                {lastSavedAt.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} 저장됨
+                            </span>
+                        </div>
+                    )}
+                    <button
                         onClick={() => handleSave()}
                         className="flex items-center gap-2 px-5 py-2.5 bg-black text-white rounded-2xl font-bold hover:opacity-80 transition-all shadow-lg shadow-slate-200"
                     >
@@ -515,13 +530,13 @@ export default function WorkspaceView({
                     </div>
                     <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
                         {currentDoc.tabs.map((tab: string, idx: number) => (
-                            <div 
+                            <div
                                 key={idx}
                                 onClick={() => setActiveTab(idx)}
                                 className={cn(
                                     "p-4 rounded-2xl cursor-pointer transition-all border group relative",
-                                    activeTab === idx 
-                                        ? "bg-white border-blue-100 shadow-xl shadow-blue-50/50" 
+                                    activeTab === idx
+                                        ? "bg-white border-blue-100 shadow-xl shadow-blue-50/50"
                                         : "bg-transparent border-transparent hover:bg-white/50 hover:border-slate-100"
                                 )}
                             >
@@ -533,14 +548,14 @@ export default function WorkspaceView({
                                         Question {idx + 1}
                                     </span>
                                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                                        <button 
+                                        <button
                                             onClick={(e) => { e.stopPropagation(); setActiveTab(idx); setIsEditQuestionOpen(true); }}
                                             className="p-1 hover:bg-slate-50 rounded text-slate-400 hover:text-slate-900"
                                         >
                                             <Edit3 size={14} />
                                         </button>
                                         {currentDoc.tabs.length > 1 && (
-                                            <button 
+                                            <button
                                                 onClick={(e) => { e.stopPropagation(); deleteTab(idx); }}
                                                 className="p-1 hover:bg-rose-50 rounded text-slate-300 hover:text-rose-500"
                                             >
@@ -557,7 +572,7 @@ export default function WorkspaceView({
                                 </span>
                                 <div className="mt-3 flex items-center gap-2">
                                     <div className="flex-1 h-1 bg-slate-100 rounded-full overflow-hidden">
-                                        <div 
+                                        <div
                                             className={cn(
                                                 "h-full transition-all",
                                                 (currentDoc.contents[idx]?.length || 0) > (currentDoc.charLimits[idx] || 700) ? "bg-rose-500" : "bg-emerald-500"
@@ -586,7 +601,7 @@ export default function WorkspaceView({
                                             <span className="px-2 py-0.5 bg-slate-900 text-white text-[10px] font-black rounded-md uppercase tracking-wider">
                                                 Question {activeTab + 1}
                                             </span>
-                                            <button 
+                                            <button
                                                 onClick={() => setIsEditQuestionOpen(true)}
                                                 className="p-1 hover:bg-slate-100 rounded-md text-slate-400 hover:text-slate-900 transition-all opacity-0 group-hover:opacity-100"
                                             >
@@ -614,20 +629,20 @@ export default function WorkspaceView({
                                     </div>
                                 </div>
                                 <div className="h-1 w-full bg-slate-100 rounded-full overflow-hidden">
-                                  <motion.div 
-                                    initial={{ width: 0 }}
-                                    animate={{ width: `${Math.min((activeContent.length / activeLimit) * 100, 100)}%` }}
-                                    className={cn(
-                                      "h-full transition-all duration-500",
-                                      activeContent.length > activeLimit ? "bg-rose-500" : "bg-emerald-500"
-                                    )}
-                                  />
+                                    <motion.div
+                                        initial={{ width: 0 }}
+                                        animate={{ width: `${Math.min((activeContent.length / activeLimit) * 100, 100)}%` }}
+                                        className={cn(
+                                            "h-full transition-all duration-500",
+                                            activeContent.length > activeLimit ? "bg-rose-500" : "bg-emerald-500"
+                                        )}
+                                    />
                                 </div>
                             </div>
 
                             <div className="min-h-[500px] relative group">
                                 <div className="absolute -left-6 top-0 bottom-0 w-[2px] bg-slate-50 group-focus-within:bg-blue-500 transition-colors" />
-                                <textarea 
+                                <textarea
                                     value={activeContent}
                                     onChange={(e) => updateContent(e.target.value)}
                                     placeholder="이곳에 내용을 입력하거나 AI의 도움을 받아보세요..."
@@ -639,21 +654,21 @@ export default function WorkspaceView({
 
                     {/* AI 액션 바 */}
                     <div className="h-20 border-t border-slate-50 px-12 flex items-center justify-center gap-4 bg-white shrink-0 shadow-[0_-4px_20px_rgba(0,0,0,0.02)]">
-                        <button 
+                        <button
                             disabled={isGenerating}
                             className="flex items-center gap-2 px-6 py-3 bg-blue-50 text-blue-700 rounded-2xl font-bold hover:bg-blue-100 transition-all border border-blue-100"
                         >
                             <Sparkles size={18} />
                             AI 초안 생성
                         </button>
-                        <button 
+                        <button
                             disabled={isGenerating}
                             className="flex items-center gap-2 px-6 py-3 bg-emerald-50 text-emerald-700 rounded-2xl font-bold hover:bg-emerald-100 transition-all border border-emerald-100"
                         >
                             <Zap size={18} />
                             문장 다듬기
                         </button>
-                        <button 
+                        <button
                             onClick={() => setShowEvaluation(!showEvaluation)}
                             className="flex items-center gap-2 px-6 py-3 bg-slate-50 text-slate-700 rounded-2xl font-bold hover:bg-slate-100 transition-all border border-slate-100"
                         >
@@ -666,7 +681,7 @@ export default function WorkspaceView({
                 {/* AI 평가 패널 */}
                 <AnimatePresence>
                     {showEvaluation && (
-                        <motion.div 
+                        <motion.div
                             initial={{ x: 400 }}
                             animate={{ x: 0 }}
                             exit={{ x: 400 }}
@@ -688,7 +703,7 @@ export default function WorkspaceView({
                                         <div className="h-full bg-blue-500 transition-all" style={{ width: '82%' }} />
                                     </div>
                                     <p className="text-xs text-slate-500 leading-relaxed">
-                                        작성해주신 경험이 해당 직무의 핵심 역량인 '데이터 분석' 능력과 잘 연결되고 있습니다. 
+                                        작성해주신 경험이 해당 직무의 핵심 역량인 '데이터 분석' 능력과 잘 연결되고 있습니다.
                                     </p>
                                 </div>
                             </div>
@@ -702,7 +717,7 @@ export default function WorkspaceView({
                 {isEditQuestionOpen && (
                     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
                         <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsEditQuestionOpen(false)} />
-                        <motion.div 
+                        <motion.div
                             initial={{ scale: 0.9, opacity: 0 }}
                             animate={{ scale: 1, opacity: 1 }}
                             exit={{ scale: 0.9, opacity: 0 }}
@@ -718,8 +733,8 @@ export default function WorkspaceView({
                             <div className="space-y-6">
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">문항 제목</label>
-                                    <input 
-                                        type="text" 
+                                    <input
+                                        type="text"
                                         defaultValue={currentDoc.tabs[activeTab]}
                                         id="edit-q-title"
                                         className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:border-blue-500 transition-all font-bold text-slate-900"
@@ -728,7 +743,7 @@ export default function WorkspaceView({
                                 </div>
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">상세 가이드 (설명)</label>
-                                    <textarea 
+                                    <textarea
                                         defaultValue={currentDoc.questions[activeTab]}
                                         id="edit-q-desc"
                                         className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:border-blue-500 min-h-[120px] resize-none font-medium text-slate-600 leading-relaxed"
@@ -737,8 +752,8 @@ export default function WorkspaceView({
                                 </div>
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">글자 수 제한</label>
-                                    <input 
-                                        type="number" 
+                                    <input
+                                        type="number"
                                         defaultValue={currentDoc.charLimits[activeTab]}
                                         id="edit-q-limit"
                                         className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:border-blue-500 transition-all font-bold text-slate-900"
@@ -747,13 +762,13 @@ export default function WorkspaceView({
                             </div>
 
                             <div className="flex gap-4 mt-10">
-                                <button 
+                                <button
                                     onClick={() => setIsEditQuestionOpen(false)}
                                     className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-bold hover:bg-slate-200 transition-all"
                                 >
                                     취소
                                 </button>
-                                <button 
+                                <button
                                     onClick={() => {
                                         const title = (document.getElementById('edit-q-title') as HTMLInputElement).value;
                                         const description = (document.getElementById('edit-q-desc') as HTMLTextAreaElement).value;
@@ -771,7 +786,7 @@ export default function WorkspaceView({
             </AnimatePresence>
 
             {/* 지원 정보 설정 모달 - Multi-step for Role Selection */}
-            <TargetSelectionModal 
+            <TargetSelectionModal
                 isOpen={isTargetModalOpen}
                 onClose={() => setIsTargetModalOpen(false)}
                 history={history}
@@ -796,14 +811,14 @@ function TargetSelectionModal({ isOpen, onClose, history, currentDoc, onSaveLink
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div 
+            <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 onClick={onClose}
                 className="absolute inset-0 bg-black/40 backdrop-blur-sm"
             />
-            <motion.div 
+            <motion.div
                 initial={{ scale: 0.95, opacity: 0, y: 20 }}
                 animate={{ scale: 1, opacity: 1, y: 0 }}
                 exit={{ scale: 0.95, opacity: 0, y: 20 }}
@@ -822,7 +837,7 @@ function TargetSelectionModal({ isOpen, onClose, history, currentDoc, onSaveLink
                 <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
                     {step === 'choice' && (
                         <div className="space-y-4">
-                            <button 
+                            <button
                                 onClick={() => setStep('analysis')}
                                 className="w-full p-6 bg-slate-50 hover:bg-blue-50 border border-slate-100 hover:border-blue-200 rounded-3xl flex items-center gap-5 transition-all group text-left"
                             >
@@ -837,7 +852,7 @@ function TargetSelectionModal({ isOpen, onClose, history, currentDoc, onSaveLink
                                     <p className="text-xs text-slate-500 mt-1">분석 완료된 데이터를 활용합니다.</p>
                                 </div>
                             </button>
-                            <button 
+                            <button
                                 onClick={() => setStep('manual')}
                                 className="w-full p-6 bg-slate-50 hover:bg-emerald-50 border border-slate-100 hover:border-emerald-200 rounded-3xl flex items-center gap-5 transition-all group text-left"
                             >
@@ -865,7 +880,7 @@ function TargetSelectionModal({ isOpen, onClose, history, currentDoc, onSaveLink
                                     </div>
                                 ) : (
                                     history.map((item: any, idx: number) => (
-                                        <button 
+                                        <button
                                             key={idx}
                                             onClick={() => {
                                                 setSelectedItem(item);
@@ -893,7 +908,7 @@ function TargetSelectionModal({ isOpen, onClose, history, currentDoc, onSaveLink
                             <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">[{selectedItem.companyName}] 모집 직무 선택</h4>
                             <div className="grid grid-cols-1 gap-3">
                                 {selectedItem.analysisResult?.map((role: any, idx: number) => (
-                                    <button 
+                                    <button
                                         key={idx}
                                         onClick={() => onSaveLink(selectedItem, role)}
                                         className="flex items-center justify-between p-5 bg-white border border-slate-200 hover:border-blue-500 hover:bg-blue-50 focus:ring-4 focus:ring-blue-100 rounded-2xl transition-all group"
@@ -926,9 +941,9 @@ function TargetSelectionModal({ isOpen, onClose, history, currentDoc, onSaveLink
                             <div className="space-y-4">
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">회사명</label>
-                                    <input 
+                                    <input
                                         id="manual-company"
-                                        type="text" 
+                                        type="text"
                                         placeholder="예: 삼성전자"
                                         defaultValue={currentDoc.companyName || ''}
                                         className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:border-blue-500 transition-all font-bold text-sm"
@@ -936,16 +951,16 @@ function TargetSelectionModal({ isOpen, onClose, history, currentDoc, onSaveLink
                                 </div>
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">직무명</label>
-                                    <input 
+                                    <input
                                         id="manual-job"
-                                        type="text" 
+                                        type="text"
                                         placeholder="예: 마케팅"
                                         defaultValue={currentDoc.jobTitle || ''}
                                         className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:border-blue-500 transition-all font-bold text-sm"
                                     />
                                 </div>
                             </div>
-                            <button 
+                            <button
                                 onClick={() => {
                                     const c = (document.getElementById('manual-company') as HTMLInputElement).value;
                                     const j = (document.getElementById('manual-job') as HTMLInputElement).value;

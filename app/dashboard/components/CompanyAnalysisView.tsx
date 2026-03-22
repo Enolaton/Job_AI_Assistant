@@ -47,8 +47,10 @@ export default function CompanyAnalysisView({
     const [history, setHistory] = useState<any[]>([]);
 
     useEffect(() => {
-        fetchHistory();
-    }, []);
+        if (!analysisResult) {
+            fetchHistory();
+        }
+    }, [analysisResult]);
 
     const fetchHistory = async () => {
         try {

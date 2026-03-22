@@ -35,7 +35,8 @@ export async function POST(req: NextRequest) {
         const companyName = cleanName(rawCompanyName);
 
         const serviceScriptPath = path.join(process.cwd(), 'company_info', 'company_service.py');
-        const dartScriptPath = path.join(process.cwd(), 'dart', 'run_pipeline.py');
+        // [수정] run_pipeline.py 대신 통합 엔진인 analysis_JD.py 호출
+        const dartScriptPath = path.join(process.cwd(), 'app', 'analysis_JD.py');
         const venvPythonPath = path.join(process.cwd(), '.venv', 'Scripts', 'python.exe');
         const pythonExecutable = fs.existsSync(venvPythonPath) ? venvPythonPath : 'python';
 
@@ -79,8 +80,11 @@ export async function POST(req: NextRequest) {
             });
         };
 
-        // --- 1. 데이터 수집 및 분석 (병렬 실행) ---
-        // 기존 분석 결과가 있는지 확인
+        // --- 1. 글로벌 캐시(Global DB) 및 개인 열람 내역(History) 확인 ---
+        const globalCache = await prisma.companyAnalysis.findUnique({
+            where: { companyName }
+        });
+
         const existingReport = await (prisma as any).companyReport.findUnique({
             where: {
                 userId_companyName: {
@@ -90,75 +94,117 @@ export async function POST(req: NextRequest) {
             }
         });
 
-        const reportData = (existingReport?.reportData as any) || {};
-        let finalAnalysis = reportData.analysis;
-        let finalDart = reportData.dart;
+        // 글로벌 캐시가 있고 강제 새로고침이 아닐 경우 캐시 사용
+        let finalAnalysis = (globalCache && !forceRefresh && (globalCache.idealCandidate || globalCache.corporateCulture)) ? {
+            "인재상": globalCache.idealCandidate || [],
+            "조직문화": globalCache.corporateCulture || []
+        } : null;
 
-        // 분석이 필요한 항목들 선별하여 병렬 실행
+        let finalDart = (globalCache && globalCache.businessSummary && !forceRefresh) ? {
+            companyName: globalCache.companyName,
+            reportYear: globalCache.reportYear,
+            business: globalCache.businessSummary,
+            products: globalCache.productSummary,
+            financial: globalCache.financialSummary
+        } : null;
+
+        // --- 2. 데이터 수집 (병렬 실행) ---
         const tasks: Promise<any>[] = [
             runPython(serviceScriptPath, [companyName, jobTitle || '', 'news']) // 뉴스는 항상 실시간
         ];
 
-        // 인재상/조직문화 분석은 DB에 없을 경우에만 최초 1회 실행 (새로고침 시 재분석 제외)
+        let needsAnalysisUpdate = false;
+        let needsDartUpdate = false;
+
+        // 캐시가 비어있거나 강제 새로고침일 때만 API/크롤링 재호출
         if (!finalAnalysis) {
             tasks.push(runPython(serviceScriptPath, [companyName, jobTitle || '', 'analysis']));
+            needsAnalysisUpdate = true;
         }
 
-        if (!finalDart || forceRefresh) {
+        if (!finalDart) {
             tasks.push(runPython(dartScriptPath, [companyName]));
+            needsDartUpdate = true;
         }
 
         const results = await Promise.all(tasks);
-        
-        // 결과 매핑 (구조적 불일치 전수 교정)
+
+        // 결과 매핑
         let realTimeNews = results[0]?.news || [];
-        let updated = false;
+        let freshAnalysis: any = null;
+        let freshDart: any = null;
+        let updateGlobalCache = false;
 
         results.slice(1).forEach(res => {
-            // 1. 기업 문화 및 인재상 분석 결과 매핑
             if (res.analysis) {
+                freshAnalysis = res.analysis;
                 finalAnalysis = res.analysis;
-                updated = true;
+                updateGlobalCache = true;
             }
-            // 2. DART 기업 공시 분석 결과 매핑 (status: success 체크 및 키값 정규화)
             if (res.status === 'success') {
-                finalDart = {
-                    companyName: res.company_name,
-                    reportYear: res.report_year,
-                    business: res.business_summary,
-                    products: res.products_services_summary,
-                    financial: res.financial_summary
+                freshDart = {
+                    companyName: res.company_name || companyName,
+                    reportYear: res.report_year || new Date().getFullYear().toString(),
+                    business: res.business || res.business_summary || null,
+                    products: res.products || res.products_services_summary || null,
+                    financial: res.financial || res.financial_summary || null
                 };
-                updated = true;
+                finalDart = freshDart;
+                updateGlobalCache = true;
             }
         });
 
-        // 결과가 업데이트되었거나 캐시가 없었던 경우, 혹은 DART 데이터가 여전히 비어있는 경우 DB 갱신
-        if (updated || !existingReport || !finalDart) {
-            await (prisma as any).companyReport.upsert({
-                where: {
-                    userId_companyName: {
-                        userId: user.id,
-                        companyName: companyName
-                    }
-                },
+        // --- 3. 글로벌 캐시 DB 및 개인 리포트 DB 갱신 ---
+        if (updateGlobalCache) {
+            // 다른 사람들도 볼 수 있는 공용 DB에 즉각 업데이트 (글로벌 캐시 복구)
+            await prisma.companyAnalysis.upsert({
+                where: { companyName },
                 update: {
-                    reportData: { 
-                        analysis: finalAnalysis || { "인재상": [], "조직문화": [] },
-                        dart: finalDart || null
-                    }
+                    ...(freshAnalysis && {
+                        idealCandidate: freshAnalysis["인재상"] || [],
+                        corporateCulture: freshAnalysis["조직문화"] || []
+                    }),
+                    ...(freshDart && {
+                        businessSummary: freshDart.business,
+                        productSummary: freshDart.products,
+                        financialSummary: freshDart.financial,
+                        reportYear: freshDart.reportYear
+                    })
                 },
                 create: {
-                    userId: user.id,
-                    companyName: companyName,
-                    reportData: { 
-                        analysis: finalAnalysis || { "인재상": [], "조직문화": [] },
-                        dart: finalDart || null
-                    }
+                    companyName,
+                    idealCandidate: (freshAnalysis || finalAnalysis || {})["인재상"] || [],
+                    corporateCulture: (freshAnalysis || finalAnalysis || {})["조직문화"] || [],
+                    businessSummary: (freshDart || finalDart)?.business || null,
+                    productSummary: (freshDart || finalDart)?.products || null,
+                    financialSummary: (freshDart || finalDart)?.financial || null,
+                    reportYear: (freshDart || finalDart)?.reportYear || null
                 }
             });
-            console.log(`💡 [DB UPDATED] '${companyName}' 기업 분석 및 DART 데이터를 캐싱했습니다.`);
+            console.log(`[DB UPDATED] '${companyName}' 기업 글로벌 캐시(CompanyAnalysis) 업데이트 완료`);
         }
+
+        // 개인별 리포트 보기 이력 갱신 (불변성이 없고 실시간으로 변하는 뉴스만 저장하여 DB를 100% 정규화/경량화)
+        await (prisma as any).companyReport.upsert({
+            where: {
+                userId_companyName: {
+                    userId: user.id,
+                    companyName: companyName
+                }
+            },
+            update: {
+                reportData: {
+                    news: realTimeNews
+                }
+            },
+            create: {
+                userId: user.id,
+                companyName: companyName,
+                reportData: {
+                    news: realTimeNews
+                }
+            }
+        });
 
         return NextResponse.json({
             news: realTimeNews,

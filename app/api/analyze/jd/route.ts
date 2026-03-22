@@ -78,31 +78,35 @@ export async function POST(req: NextRequest) {
 
                 try {
                     // stdoutData에 오직 JSON만 들어있으므로 통째로 파싱
+                    console.log('[JD API] Raw Python output captured. Parsing...');
                     const parsedData = JSON.parse(stdoutData.trim());
-                    const { raw_text, structured } = parsedData;
+                    const { raw_text, structured, company_name: aiCompanyName } = parsedData;
+
+                    console.log(`[JD API] Parsing complete. Company: ${aiCompanyName}, Roles: ${structured?.length || 0}`);
 
                     // --- 3. 클라우드 DB에 결과 저장 (Prisma 활용) ---
-                    // 기업명 정제 로직 (주식회사, (주), ㈜ 등 법인 접사 및 변칙 공백 제거)
                     const cleanName = (name: string) => {
                         return name.replace(/\( ?주 ?\)|주식회사|㈜|\( ?유 ?\)|유한회사|\( ?사 ?\)|사단법인|\( ?재 ?\)|재단법인|\( ?의 ?\)|의료법인/g, '').trim();
                     };
-                    const rawCompanyName = structured[0]?.["회사명"] || "알수없음";
+                    const rawCompanyName = aiCompanyName || structured?.[0]?.["회사명"] || "알수없음";
                     const companyName = cleanName(rawCompanyName);
 
-                    // Transaction을 사용하여 JobAnalysis와 JobRoles를 함께 저장
+                    console.log(`[JD API] Starting DB Transaction for company: ${companyName}...`);
+
                     const newAnalysis = await (prisma as any).$transaction(async (tx: any) => {
                         const analysis = await tx.jobAnalysis.create({
                             data: {
                                 userId: user.id,
                                 companyName,
                                 jdUrl: url,
-                                jdRawText: raw_text,
+                                jdRawText: raw_text || "",
                                 analysisResult: structured // 하위 호환성을 위해 유지
                             }
                         });
 
                         // 개별 직무(Role) 레코드 생성
                         if (Array.isArray(structured)) {
+                            console.log(`[JD API] Creating ${structured.length} job role records...`);
                             await tx.jobRole.createMany({
                                 data: structured.map((job: any) => ({
                                     analysisId: analysis.id,
@@ -117,21 +121,24 @@ export async function POST(req: NextRequest) {
                         }
 
                         return analysis;
+                    }).catch((dbErr: any) => {
+                        console.error('[JD API] DB Transaction Failed:', dbErr.message);
+                        throw dbErr;
                     });
 
-                    console.log(`💡 [DB SAVED] 분석 결과 및 ${structured.length}개의 직무를 DB에 저장했습니다: ${url}`);
-
+                    console.log(`[DB SAVED] 분석 결과 저장 완료. ID: ${newAnalysis.id}`);
                     resolve(NextResponse.json({ result: structured, id: newAnalysis.id }));
-                } catch (parseError) {
-                    console.error('Failed to parse Python output. Raw output:', stdoutData);
-                    resolve(NextResponse.json({ error: 'Failed to parse result', output: stdoutData }, { status: 500 }));
+                } catch (parseError: any) {
+                    console.error('[JD API] Failed to parse Python output or DB save failed:', parseError.message);
+                    console.error('[JD API] Raw output was:', stdoutData);
+                    resolve(NextResponse.json({ error: 'Failed to process result', details: parseError.message }, { status: 500 }));
                 }
             });
         });
 
-    } catch (error) {
-        console.error('API Error:', error);
-        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    } catch (error: any) {
+        console.error('[JD API] Fatal Error:', error.message);
+        return NextResponse.json({ error: 'Internal server error', details: error.message }, { status: 500 });
     }
 }
 

@@ -22,6 +22,25 @@ export default function ExperienceBankView({}: ExperienceBankViewProps) {
     const [experiences, setExperiences] = useState<any[]>([]);
     const [uploadingType, setUploadingType] = useState<string | null>(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+
+    // 컴포넌트 마운트 시 기존 데이터 불러오기 (데이터 증발 방지 로직)
+    React.useEffect(() => {
+        const fetchInitialData = async () => {
+            setIsLoading(true);
+            try {
+                const res = await fetch('/api/bank');
+                const data = await res.json();
+                if (data.documents) setDocuments(data.documents);
+                if (data.experiences) setExperiences(data.experiences);
+            } catch (error) {
+                console.error('[bank] Failed to fetch initial data:', error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchInitialData();
+    }, []);
 
     const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: string) => {
         const file = e.target.files?.[0];
@@ -38,6 +57,15 @@ export default function ExperienceBankView({}: ExperienceBankViewProps) {
                 body: formData,
             });
             const data = await res.json();
+            
+            if (res.status === 400) {
+                toast.error(data.reason || '지원 서류 형식이 아닙니다. 올바른 이력서 또는 포트폴리오를 업로드해 주세요.', {
+                    duration: 5000,
+                    icon: '⚠️'
+                });
+                return;
+            }
+
             if (data.id) {
                 setDocuments(prev => [...prev.filter(d => d.type !== type), { ...data, type }]);
                 toast.success(`${type === 'RESUME' ? '이력서' : '포트폴리오'}가 업로드되었습니다.`);
@@ -129,7 +157,7 @@ export default function ExperienceBankView({}: ExperienceBankViewProps) {
                                     <div className="p-2.5 bg-blue-600 text-white rounded-2xl">
                                         <FileText size={24} />
                                     </div>
-                                    내 프로젝트 및 실무 서류
+                                    내 이력서, 포트폴리오
                                 </h2>
                                 <div className="flex items-center gap-3 text-sm font-bold px-4 py-2 bg-slate-100 text-slate-500 rounded-xl">
                                     업로드 현황 <span className="text-blue-600">{uploadedCount}/2</span>
@@ -138,41 +166,42 @@ export default function ExperienceBankView({}: ExperienceBankViewProps) {
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                 <div className="group/card">
-                                    <DocumentUploadCard
+                                    <DocumentUploadCard 
                                         type="RESUME"
-                                        title="경력기술서 / 이력서"
+                                        title="이력서"
                                         documents={documents}
                                         handleUpload={handleUpload}
                                         handleDelete={handleDelete}
                                         uploadingType={uploadingType}
                                     />
-                                    <p className="mt-3 text-xs text-slate-400 font-medium px-2 italic">PDF, 이미지 형식이 가장 분석 품질이 좋습니다.</p>
                                 </div>
                                 <div className="group/card">
-                                    <DocumentUploadCard
+                                    <DocumentUploadCard 
                                         type="PORTFOLIO"
-                                        title="포트폴리오 / 기획서"
+                                        title="포트폴리오"
                                         documents={documents}
                                         handleUpload={handleUpload}
                                         handleDelete={handleDelete}
                                         uploadingType={uploadingType}
                                     />
-                                    <p className="mt-3 text-xs text-slate-400 font-medium px-2 italic">성과 위주의 포트폴리오 분석을 권장합니다.</p>
                                 </div>
                             </div>
+                            <p className="mt-6 text-sm text-slate-400 font-medium text-center italic">
+                                이력서 및 포트폴리오는 <span className="text-blue-500 font-bold">PDF 형식</span>으로 업로드 해주세요
+                            </p>
 
-                            <div className="mt-12 pt-10 border-t border-slate-100 bg-slate-50/30 -mx-10 -mb-10 p-10 flex flex-col items-center">
+                            <div className="mt-8 pt-8 border-t border-slate-100 bg-slate-50/30 -mx-10 -mb-10 p-10 flex flex-col items-center">
                                 <button
                                     onClick={handleAnalyze}
                                     disabled={isAnalyzing || documents.length === 0}
                                     className={`relative group flex items-center justify-center gap-4 px-16 py-6 rounded-3xl font-black text-2xl transition-all shadow-2xl active:scale-95 ${isAnalyzing || documents.length === 0 ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-slate-900 text-white hover:bg-blue-600 hover:-translate-y-1 shadow-blue-500/30'}`}
                                 >
                                     {isAnalyzing ? (
-                                        <><Loader2 size={32} className="animate-spin" /> <span>심층 역량 추출 중...</span></>
+                                        <><Loader2 size={32} className="animate-spin" /> <span>내 경험 분석 중</span></>
                                     ) : (
                                         <>
                                             <Brain size={32} className="text-blue-400" />
-                                            <span>AI 통합 경험 분석</span>
+                                            <span>내 경험 분석</span>
                                             <ArrowRight size={24} className="group-hover:translate-x-2 transition-transform" />
                                         </>
                                     )}

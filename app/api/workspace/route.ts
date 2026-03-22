@@ -107,8 +107,8 @@ export async function POST(req: NextRequest) {
                         status: status || '작성전',
                         roleId: roleId ? parseInt(roleId) : null,
                         analysisId: analysisId ? parseInt(analysisId) : null,
-                        manualCompanyName: !analysisId ? companyName : null,
-                        manualJobTitle: !analysisId ? jobTitle : null
+                        manualCompanyName: companyName || null,
+                        manualJobTitle: jobTitle || null
                     }
                 });
 
@@ -123,8 +123,8 @@ export async function POST(req: NextRequest) {
                         status: status || '작성전',
                         roleId: roleId ? parseInt(roleId) : null,
                         analysisId: analysisId ? parseInt(analysisId) : null,
-                        manualCompanyName: !analysisId ? companyName : null,
-                        manualJobTitle: !analysisId ? jobTitle : null
+                        manualCompanyName: companyName || null,
+                        manualJobTitle: jobTitle || null
                     }
                 });
             }
