@@ -124,7 +124,7 @@ def main():
     result = process_portfolio(text, api_key)
     # Backend 호환성을 위해 is_valid_resume 키도 추가 (옵션 또는 필드 통합 용이성)
     if "is_valid_portfolio" in result:
-        result["is_valid_resume"] = result["is_valid_portfolio"]
+        result["is_valid_resume"] = result["is_valid_portfolio"]  # type: ignore
 
     print(json.dumps(result, ensure_ascii=False))
 

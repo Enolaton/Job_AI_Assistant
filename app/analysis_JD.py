@@ -600,7 +600,7 @@ def main():
         if is_url:
             # [CASE 1] 채용공고 URL 분석 모드
             sys.stderr.write(f"[JD 분석] 공고 페이지 접속 중... ({input_value})\n")
-            screenshot, top_text, final_url = get_full_page_screenshot(input_value)
+            screenshot, top_text, final_url = get_full_page_screenshot(input_value)  # type: ignore
             
             if screenshot is None:
                 sys.stderr.write("[오류] 스크린샷 캡처 실패\n")
