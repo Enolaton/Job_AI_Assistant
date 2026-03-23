@@ -2,54 +2,36 @@
 @tailwind components;
 @tailwind utilities;
 
-
 :root {
-  --background: #f6f6f8;
-  --foreground: #171717;
-  --primary: #135bec;
-  --primary-hover: #0e4ac5;
-  --border-light: #dbdfe6;
+  --background: #F8FAFC;
+  --foreground: #0F172A;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom Scrollbar */
+/* Scrollbar */
 .custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
 }
-
 .custom-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
-
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background-color: #cbd5e1;
-  border-radius: 20px;
+  background-color: #CBD5E1;
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: #94A3B8;
 }
 
-/* Prototype Theme Support */
-@layer utilities {
-  .bg-background-light {
-    background-color: #f6f6f8;
-  }
-
-  .text-primary {
-    color: #135bec;
-  }
-
-  .bg-primary {
-    background-color: #135bec;
-  }
-
-  .hover\:bg-primary-hover:hover {
-    background-color: #0e4ac5;
-  }
-
-  .border-border-light {
-    border-color: #dbdfe6;
-  }
+/* Selection */
+::selection {
+  background-color: #DBEAFE;
+  color: #1E40AF;
 }

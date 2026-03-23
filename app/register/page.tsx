@@ -4,7 +4,6 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { User, Mail, Lock, ArrowLeft, UserPlus, Brain } from 'lucide-react';
-import { motion } from 'motion/react';
 import toast from 'react-hot-toast';
 
 export default function RegisterPage() {
@@ -16,7 +15,6 @@ export default function RegisterPage() {
     e.preventDefault();
     setIsLoading(true);
 
-    // 1. 이름 검증: 한글/영어 1~19자
     const nameRegex = /^[a-zA-Z가-힣]{1,19}$/;
     if (!nameRegex.test(formData.name)) {
       toast.error("이름은 한글 또는 영어 1~19자여야 합니다.");
@@ -24,7 +22,6 @@ export default function RegisterPage() {
       return;
     }
 
-    // 2. 이메일 검증
     const email = formData.email.trim();
     const emailParts = email.split('@');
 
@@ -36,7 +33,6 @@ export default function RegisterPage() {
 
     const [emailPrefix, emailDomain] = emailParts;
 
-    // admin 사용 제한
     const adminRegex = /^admin\d*$/i;
     if (adminRegex.test(formData.name) || adminRegex.test(emailPrefix)) {
       toast.error("죄송합니다. 'admin'은 시스템 예약어로 사용할 수 없습니다.");
@@ -66,7 +62,6 @@ export default function RegisterPage() {
       return;
     }
 
-    // 3. 비밀번호 검증
     const passwordRegex = /^[a-zA-Z0-9]{8,16}$/;
     if (!passwordRegex.test(formData.password)) {
       toast.error("비밀번호는 8~16자 사이의 영문 또는 숫자로만 구성되어야 합니다.");
@@ -74,7 +69,6 @@ export default function RegisterPage() {
       return;
     }
 
-    // 4. 비밀번호 확인 체크
     if (formData.password !== formData.confirmPassword) {
       toast.error("비밀번호가 서로 일치하지 않습니다. 다시 확인해주세요.");
       setIsLoading(false);
@@ -103,38 +97,27 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4 font-sans">
-      {/* Decorative background elements */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] rounded-full bg-blue-100/50 blur-3xl"></div>
-        <div className="absolute -bottom-[10%] -right-[10%] w-[40%] h-[40%] rounded-full bg-indigo-100/50 blur-3xl"></div>
-      </div>
-
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="w-full max-w-md relative"
-      >
-        <div className="bg-white p-10 rounded-3xl shadow-2xl shadow-blue-900/5 border border-slate-100 relative z-10">
-          <div className="text-center mb-10">
-            <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-blue-600 text-white shadow-xl shadow-blue-600/30 mb-6">
-              <Brain size={32} />
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
+      <div className="w-full max-w-sm">
+        <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center h-10 w-10 bg-blue-600 text-white rounded-lg mb-4">
+              <Brain size={20} />
             </div>
-            <h2 className="text-3xl font-black text-slate-900 tracking-tight">Bunny 시작하기</h2>
-            <p className="mt-2 text-slate-500 font-medium text-sm">지능형 커리어 에이전트와 함께하세요</p>
+            <h2 className="text-2xl font-bold text-slate-900 tracking-tight">계정 만들기</h2>
+            <p className="mt-1 text-slate-500 text-sm">Bunny와 함께 취업 준비를 시작하세요</p>
           </div>
 
-          <form onSubmit={handleRegister} className="space-y-5" noValidate>
-            <div className="space-y-4">
+          <form onSubmit={handleRegister} className="space-y-4" noValidate>
+            <div className="space-y-3.5">
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 ml-1">이름</label>
-                <div className="relative group">
-                  <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors" size={18} />
+                <label className="block text-xs font-semibold text-slate-500 mb-1.5 ml-0.5">이름</label>
+                <div className="relative">
+                  <User className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                   <input
                     type="text"
                     placeholder="홍길동"
-                    className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl focus:bg-white focus:ring-2 focus:ring-blue-600/10 focus:border-blue-600 outline-none transition-all placeholder:text-slate-300"
+                    className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-slate-300"
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     required
                   />
@@ -142,13 +125,13 @@ export default function RegisterPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 ml-1">이메일 주소</label>
-                <div className="relative group">
-                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors" size={18} />
+                <label className="block text-xs font-semibold text-slate-500 mb-1.5 ml-0.5">이메일 주소</label>
+                <div className="relative">
+                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                   <input
                     type="email"
                     placeholder="example@bunny.com"
-                    className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl focus:bg-white focus:ring-2 focus:ring-blue-600/10 focus:border-blue-600 outline-none transition-all placeholder:text-slate-300"
+                    className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-slate-300"
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     required
                   />
@@ -156,13 +139,13 @@ export default function RegisterPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 ml-1">비밀번호</label>
-                <div className="relative group">
-                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors" size={18} />
+                <label className="block text-xs font-semibold text-slate-500 mb-1.5 ml-0.5">비밀번호</label>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                   <input
                     type="password"
                     placeholder="8~16자 영문/숫자조합"
-                    className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl focus:bg-white focus:ring-2 focus:ring-blue-600/10 focus:border-blue-600 outline-none transition-all placeholder:text-slate-300"
+                    className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-slate-300"
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     required
                   />
@@ -170,13 +153,13 @@ export default function RegisterPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 ml-1">비밀번호 확인</label>
-                <div className="relative group">
-                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors" size={18} />
+                <label className="block text-xs font-semibold text-slate-500 mb-1.5 ml-0.5">비밀번호 확인</label>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                   <input
                     type="password"
                     placeholder="비밀번호를 한 번 더 입력해주세요"
-                    className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border border-slate-100 rounded-2xl focus:bg-white focus:ring-2 focus:ring-blue-600/10 focus:border-blue-600 outline-none transition-all placeholder:text-slate-300"
+                    className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-slate-300"
                     onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
                     required
                   />
@@ -184,32 +167,32 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 pt-6">
+            <div className="flex flex-col gap-2.5 pt-4">
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold text-base hover:bg-blue-700 active:scale-[0.98] transition-all shadow-xl shadow-blue-600/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium text-sm hover:bg-blue-700 transition-colors shadow-sm flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                <UserPlus size={20} />
+                <UserPlus size={16} />
                 {isLoading ? '처리 중...' : '계정 생성하기'}
               </button>
 
               <button
                 type="button"
                 onClick={() => router.push('/login')}
-                className="w-full py-4 bg-white text-slate-500 rounded-2xl font-bold text-sm hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
+                className="w-full py-2.5 text-slate-500 rounded-lg text-xs hover:bg-slate-50 transition-colors flex items-center justify-center gap-1.5"
               >
-                <ArrowLeft size={18} />
-                이미 계정이 있으신가요? <span className="text-blue-600">로그인</span>
+                <ArrowLeft size={14} />
+                이미 계정이 있으신가요? <span className="text-blue-600 font-semibold">로그인</span>
               </button>
             </div>
           </form>
         </div>
 
-        <p className="text-center mt-8 text-slate-400 text-xs">
-          가입 시 Bunny의 <span className="text-slate-500 font-bold underline cursor-pointer">서비스 약관</span> 및 <span className="text-slate-500 font-bold underline cursor-pointer">개인정보 처리방침</span>에 동의하게 됩니다.
+        <p className="text-center mt-6 text-slate-400 text-[11px]">
+          가입 시 Bunny의 <span className="text-slate-500 font-medium underline cursor-pointer">서비스 약관</span> 및 <span className="text-slate-500 font-medium underline cursor-pointer">개인정보 처리방침</span>에 동의하게 됩니다.
         </p>
-      </motion.div>
+      </div>
     </div>
   );
 }

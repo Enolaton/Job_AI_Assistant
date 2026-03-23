@@ -208,22 +208,21 @@ export default function CompanyAnalysisView({
     };
 
     return (
-        <div className="h-full overflow-y-auto custom-scrollbar px-12 py-10 max-w-[1440px] mx-auto space-y-8 relative">
-            <div className="text-center max-w-2xl mx-auto mb-10">
-                <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                    <FileSearch size={32} />
-                </div>
-                <h1 className="text-4xl font-black text-slate-900 mb-4">AI 직무 및 기업 분석</h1>
-                <p className="text-slate-500 text-lg">채용 공고 URL을 입력하면, AI가 화면 속 여러 직무를 모두 찾아 핵심만 요약해 드립니다.</p>
+        <div className="h-full overflow-y-auto custom-scrollbar px-8 py-8 max-w-[1200px] mx-auto space-y-8">
+            {/* Header */}
+            <div className="max-w-2xl mx-auto text-center">
+                <h1 className="text-2xl font-bold text-slate-900 mb-2">채용 공고 분석</h1>
+                <p className="text-slate-500 text-sm">공고 URL을 입력하면 AI가 직무 정보를 자동으로 분석합니다.</p>
             </div>
 
-            <div className="max-w-5xl mx-auto">
-                <div className="bg-white p-2 rounded-2xl shadow-xl border border-slate-200 flex flex-col md:flex-row gap-2">
-                    <div className="flex-1 flex items-center bg-slate-50 rounded-xl px-4 py-3 border border-slate-100 focus-within:ring-2 focus-within:ring-blue-600/30 transition-all">
-                        <LinkIcon className="text-slate-400 mr-3" size={24} />
+            {/* URL Input */}
+            <div className="max-w-3xl mx-auto">
+                <div className="bg-white p-1.5 rounded-xl border border-slate-200 flex gap-1.5">
+                    <div className="flex-1 flex items-center bg-slate-50 rounded-lg px-3.5 py-2.5 border border-slate-100 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 transition-all">
+                        <LinkIcon className="text-slate-400 mr-2.5 shrink-0" size={18} />
                         <input
-                            className="bg-transparent border-none focus:ring-0 w-full text-slate-800 placeholder-slate-400 text-lg"
-                            placeholder="채용 공고 URL을 입력하세요 (예: 사람인, 잡코리아 등)"
+                            className="bg-transparent border-none focus:ring-0 w-full text-slate-800 placeholder-slate-400 text-sm outline-none"
+                            placeholder="채용 공고 URL을 입력하세요 (예: 사람인, 잡코리아)"
                             type="text"
                             value={jdUrl}
                             onChange={(e) => setJdUrl(e.target.value)}
@@ -233,74 +232,63 @@ export default function CompanyAnalysisView({
                     <button
                         onClick={onAnalyze}
                         disabled={isAnalyzing || !jdUrl}
-                        className="px-8 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 whitespace-nowrap text-lg"
+                        className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white font-medium rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap text-sm"
                     >
                         {isAnalyzing ? (
-                            <>
-                                <Loader2 size={24} className="animate-spin" />
-                                <span>AI 분석 중...</span>
-                            </>
+                            <><Loader2 size={16} className="animate-spin" /><span>분석 중...</span></>
                         ) : (
-                            <>
-                                공고 분석하기 <ArrowRight size={20} />
-                            </>
+                            <>분석하기 <ArrowRight size={16} /></>
                         )}
                     </button>
                 </div>
             </div>
 
-            {/* Favorite Jobs Display */}
+            {/* Favorite Jobs */}
             {!analysisResult && favoriteJobs.length > 0 && (
-                <div className="w-full mt-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                            <Star size={20} className="text-yellow-500 fill-yellow-500" /> 즐겨찾기 한 직무
-                        </h2>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                <div className="mt-8">
+                    <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2 mb-3">
+                        <Star size={16} className="text-amber-500 fill-amber-500" /> 즐겨찾기 한 직무
+                    </h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                         {favoriteJobs.map((job: any, idx: number) => (
                             <div
                                 key={`fav-${job.parentJobAnalysisId}-${idx}`}
                                 onClick={() => handleRestoreFavorite(job)}
-                                className="bg-white border border-yellow-200 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-yellow-400 transition-all cursor-pointer flex items-start gap-4"
+                                className="bg-white border border-slate-200 rounded-xl p-3.5 hover:border-amber-300 hover:shadow-sm transition-all cursor-pointer flex items-center gap-3"
                             >
-                                <div className="p-3 bg-yellow-50 text-yellow-600 rounded-xl shrink-0">
-                                    <Star size={20} className="fill-yellow-500" />
+                                <div className="p-2 bg-amber-50 text-amber-500 rounded-lg shrink-0">
+                                    <Star size={16} className="fill-amber-500" />
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                    <p className="text-xs font-bold text-slate-400 mb-1">{getSiteName(job.parentJdUrl)} · {formatDate(job.createdAt)}</p>
-                                    <p className="text-base font-bold text-slate-900 truncate">{cleanCompanyName(job.회사명)}</p>
+                                    <p className="text-[11px] text-slate-400 mb-0.5">{getSiteName(job.parentJdUrl)} · {formatDate(job.createdAt)}</p>
+                                    <p className="text-sm font-semibold text-slate-900 truncate">{cleanCompanyName(job.회사명)}</p>
                                 </div>
-                                <div className="text-slate-300">
-                                    <ChevronRight size={20} />
-                                </div>
+                                <ChevronRight size={16} className="text-slate-300 shrink-0" />
                             </div>
                         ))}
                     </div>
                 </div>
             )}
 
-            {/* Analysis History Display */}
+            {/* History */}
             {!analysisResult && history.length > 0 && (
-                <div className="w-full mt-12 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
-                    <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                            <Database size={20} className="text-blue-500" /> 최근 분석한 공고
-                        </h2>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                <div className="mt-8">
+                    <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2 mb-3">
+                        <Database size={16} className="text-blue-500" /> 최근 분석한 공고
+                    </h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                         {history.map((item) => (
                             <div
                                 key={item.id}
                                 onClick={() => handleRestoreHistory(item)}
-                                className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-blue-400 transition-all cursor-pointer flex items-start gap-4"
+                                className="bg-white border border-slate-200 rounded-xl p-3.5 hover:border-blue-300 hover:shadow-sm transition-all cursor-pointer flex items-center gap-3"
                             >
                                 <div className="flex-1 min-w-0">
-                                    <p className="text-xs font-bold text-slate-400 mb-1">{getSiteName(item.jdUrl)} · {formatDate(item.createdAt)}</p>
-                                    <p className="text-base font-bold text-slate-900 truncate">
-                                        {cleanCompanyName(item.companyName)} 채용 공고
-                                        <span className="text-sm font-medium text-slate-500 ml-1">
-                                            (직무 {Array.isArray(item.analysisResult) ? item.analysisResult.length : 1}개)
+                                    <p className="text-[11px] text-slate-400 mb-0.5">{getSiteName(item.jdUrl)} · {formatDate(item.createdAt)}</p>
+                                    <p className="text-sm font-semibold text-slate-900 truncate">
+                                        {cleanCompanyName(item.companyName)}
+                                        <span className="text-xs font-normal text-slate-400 ml-1.5">
+                                            직무 {Array.isArray(item.analysisResult) ? item.analysisResult.length : 1}개
                                         </span>
                                     </p>
                                 </div>
@@ -311,98 +299,90 @@ export default function CompanyAnalysisView({
                                     }}
                                     className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors shrink-0"
                                 >
-                                    <Trash2 size={18} />
+                                    <Trash2 size={14} />
                                 </button>
-                                <div className="text-slate-300">
-                                    <ChevronRight size={20} />
-                                </div>
                             </div>
                         ))}
                     </div>
                 </div>
             )}
 
-            {/* Analysis Results Display */}
+            {/* Analysis Results */}
             {analysisResult && Array.isArray(analysisResult) && (
                 <motion.div
-                    initial={{ opacity: 0, y: 30 }}
+                    initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="mt-12 space-y-6"
+                    className="mt-8 space-y-5"
                 >
-                    <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+                    <div className="flex items-center justify-between pb-4 border-b border-slate-100">
                         <div className="flex items-center gap-3">
                             <button
                                 onClick={() => setAnalysisResult(null)}
-                                className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors mr-2"
-                                title="목록으로 돌아가기"
+                                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
                             >
-                                <ArrowLeft size={20} />
+                                <ArrowLeft size={18} />
                             </button>
-                            <div className="px-3 py-1 bg-green-100 text-green-700 font-bold rounded-full text-sm">
-                                분석 완료
-                            </div>
-                            <h2 className="text-xl font-bold text-slate-900">
-                                이 공고에서 <span className="text-blue-600">{analysisResult.length}개</span>의 직무를 발견했어요!
+                            <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 text-xs font-medium rounded-md">분석 완료</span>
+                            <h2 className="text-base font-semibold text-slate-900">
+                                <span className="text-blue-600">{analysisResult.length}개</span>의 직무를 발견했습니다
                             </h2>
                         </div>
                         <button
                             onClick={handleRemoveAllCurrentResult}
-                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-bold text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-slate-200 hover:border-red-200"
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                         >
-                            <Trash2 size={16} /> 전체 삭제
+                            <Trash2 size={14} /> 전체 삭제
                         </button>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {analysisResult.map((job: any, index: number) => (
                             <div
                                 key={index}
                                 onClick={() => setSelectedJob(job)}
-                                className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-xl transition-all hover:-translate-y-1 hover:border-blue-400 group flex flex-col cursor-pointer relative"
+                                className="bg-white border border-slate-200 rounded-xl p-5 hover:shadow-md hover:border-blue-300 transition-all group flex flex-col cursor-pointer"
                             >
-                                <div className="flex justify-between items-start mb-4">
-                                    <div className="pr-4">
-                                        <span className="inline-block px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg mb-2">
+                                <div className="flex justify-between items-start mb-3">
+                                    <div className="pr-4 min-w-0">
+                                        <span className="inline-block px-2 py-0.5 bg-blue-50 text-blue-700 text-[11px] font-medium rounded-md mb-1.5">
                                             {job.회사명 || '회사명 미상'}
                                         </span>
-                                        <h3 className="text-xl font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
+                                        <h3 className="text-base font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">
                                             {job.모집직무 || '직무 미상'}
                                         </h3>
-                                        <span className="inline-block mt-2 px-2 py-1 bg-slate-100 text-slate-600 text-[10px] font-bold rounded-md">
+                                        <span className="text-[11px] text-slate-400 mt-1 block">
                                             {job.모집부문 || '부문 미상'}
                                         </span>
                                     </div>
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-1 shrink-0">
                                         <button
                                             onClick={(e) => handleRemoveJobFromCurrentResult(e, index)}
-                                            className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors opacity-0 group-hover:opacity-100"
-                                            title="삭제"
+                                            className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
                                         >
-                                            <Trash2 size={18} />
+                                            <Trash2 size={14} />
                                         </button>
                                         <button
                                             onClick={(e) => handleToggleFavorite(e, index)}
-                                            className={`p-2 rounded-lg transition-colors h-fit ${job.isFavorite ? 'bg-yellow-100 text-yellow-500 hover:bg-yellow-200' : 'bg-slate-50 text-slate-400 hover:bg-yellow-50 hover:text-yellow-500'}`}
-                                            title="즐겨찾기"
+                                            className={`p-1.5 rounded-lg transition-colors ${job.isFavorite ? 'bg-amber-50 text-amber-500' : 'text-slate-300 hover:bg-amber-50 hover:text-amber-500'}`}
                                         >
-                                            <Star size={20} className={job.isFavorite ? 'fill-yellow-500' : ''} />
+                                            <Star size={14} className={job.isFavorite ? 'fill-amber-500' : ''} />
                                         </button>
                                     </div>
                                 </div>
 
-                                <div className="flex-1 mb-6">
-                                    <div className="bg-blue-50/30 p-4 rounded-xl border border-blue-100/50">
-                                        <h4 className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-2 flex items-center gap-1">
-                                            <Brain size={12} /> AI 요약
-                                        </h4>
-                                        <p className="text-xs text-slate-700 leading-relaxed font-medium line-clamp-3">
+                                <div className="flex-1 mb-4">
+                                    <div className="bg-slate-50 p-3.5 rounded-lg border border-slate-100">
+                                        <p className="text-[11px] font-semibold text-slate-500 flex items-center gap-1 mb-1.5">
+                                            <Brain size={11} /> AI 요약
+                                        </p>
+                                        <p className="text-xs text-slate-600 leading-relaxed line-clamp-3">
                                             {job.공고요약 || '공고 요약 정보를 추출 중입니다...'}
                                         </p>
                                     </div>
                                 </div>
 
-                                <div className="w-full py-3 bg-white text-blue-600 border border-blue-200 font-bold rounded-xl transition-colors text-sm flex items-center justify-center gap-2 group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-600">
-                                    자세히 보기 <ArrowRight size={16} />
+                                <div className="w-full py-2.5 bg-white text-blue-600 border border-blue-200 font-medium rounded-lg transition-colors text-xs flex items-center justify-center gap-1.5 group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-600">
+                                    자세히 보기 <ArrowRight size={14} />
                                 </div>
                             </div>
                         ))}
@@ -418,71 +398,71 @@ export default function CompanyAnalysisView({
                             initial={{ opacity: 0, scale: 0.95, y: 20 }}
                             animate={{ opacity: 1, scale: 1, y: 0 }}
                             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                            className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden relative"
+                            className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden"
                         >
-                            <div className="p-6 border-b border-slate-100 bg-slate-50/50 relative">
+                            <div className="p-6 border-b border-slate-100 relative">
                                 <button
                                     onClick={() => setSelectedJob(null)}
-                                    className="absolute top-6 right-6 p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-full transition-colors"
+                                    className="absolute top-5 right-5 p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
                                 >
                                     <XIcon />
                                 </button>
 
-                                <span className="inline-block px-3 py-1 bg-blue-100 text-blue-700 text-xs font-black tracking-wider rounded-lg mb-3">
+                                <span className="inline-block px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded-md mb-2">
                                     {selectedJob.회사명 || '회사명 미상'}
                                 </span>
-                                <h2 className="text-2xl font-black text-slate-900 mb-4">{selectedJob.모집직무 || '직무 미상'}</h2>
+                                <h2 className="text-xl font-bold text-slate-900 mb-3">{selectedJob.모집직무 || '직무 미상'}</h2>
 
-                                <div className="flex flex-wrap gap-2 text-sm">
-                                    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 font-medium whitespace-nowrap">
-                                        <Target size={14} className="text-purple-500" /> {selectedJob.모집부문 || '부문 미상'}
+                                <div className="flex flex-wrap gap-2 text-xs">
+                                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 border border-slate-100 rounded-lg text-slate-600">
+                                        <Target size={12} className="text-purple-500" /> {selectedJob.모집부문 || '부문 미상'}
                                     </div>
-                                    <div className="flex items-start gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 font-medium whitespace-pre-wrap">
+                                    <div className="flex items-start gap-1.5 px-2.5 py-1.5 bg-slate-50 border border-slate-100 rounded-lg text-slate-600 whitespace-pre-wrap">
                                         <LocationIcon />
                                         <span className="flex-1">{selectedJob.근무지 || '근무지 미상'}</span>
                                     </div>
-                                    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 font-medium whitespace-nowrap">
+                                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 border border-slate-100 rounded-lg text-slate-600">
                                         <CalendarIcon />
                                         {selectedJob.채용시작일 || '?'} ~ {selectedJob.채용마감일 || '?'}
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-white">
-                                <div className="bg-blue-50/50 p-5 rounded-2xl border border-blue-100">
-                                    <h4 className="text-sm font-black text-blue-900 flex items-center gap-2 mb-3">
-                                        <CheckCircle2 size={18} className="text-blue-600" /> 주요 업무 (Main Tasks)
+                            <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
+                                <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
+                                    <h4 className="text-xs font-semibold text-blue-800 flex items-center gap-1.5 mb-2">
+                                        <CheckCircle2 size={14} className="text-blue-600" /> 주요 업무
                                     </h4>
                                     <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedJob.주요업무 || '내용 없음'}</p>
                                 </div>
 
-                                <div className="bg-purple-50/50 p-5 rounded-2xl border border-purple-100">
-                                    <h4 className="text-sm font-black text-purple-900 flex items-center gap-2 mb-3">
-                                        <Star size={18} className="text-purple-600" /> 자격 요건 (Requirements)
+                                <div className="bg-purple-50/50 p-4 rounded-xl border border-purple-100">
+                                    <h4 className="text-xs font-semibold text-purple-800 flex items-center gap-1.5 mb-2">
+                                        <Star size={14} className="text-purple-600" /> 자격 요건
                                     </h4>
                                     <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedJob.자격요건 || '내용 없음'}</p>
                                 </div>
 
-                                <div className="bg-orange-50/50 p-5 rounded-2xl border border-orange-100">
-                                    <h4 className="text-sm font-black text-orange-900 flex items-center gap-2 mb-3">
-                                        <Diamond size={18} className="text-orange-600" /> 우대 사항 (Preferred)
+                                <div className="bg-amber-50/50 p-4 rounded-xl border border-amber-100">
+                                    <h4 className="text-xs font-semibold text-amber-800 flex items-center gap-1.5 mb-2">
+                                        <Diamond size={14} className="text-amber-600" /> 우대 사항
                                     </h4>
                                     <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{selectedJob.우대사항 || '내용 없음'}</p>
                                 </div>
                             </div>
 
-                            <div className="p-6 border-t border-slate-100 bg-white shrink-0 flex gap-3">
+                            <div className="p-5 border-t border-slate-100 shrink-0 flex gap-3">
                                 <button
                                     onClick={() => onOpenCompanyReport(selectedJob.회사명, selectedJob.모집직무)}
-                                    className="flex-1 py-4 border-2 border-slate-100 text-slate-700 font-bold rounded-xl hover:border-blue-200 hover:text-blue-600 transition-all flex items-center justify-center gap-2"
+                                    className="flex-1 py-2.5 border border-slate-200 text-slate-700 font-medium rounded-lg hover:border-blue-300 hover:text-blue-600 transition-all flex items-center justify-center gap-2 text-sm"
                                 >
-                                    <BarChart3 size={18} /> 기업 분석 리포트
+                                    <BarChart3 size={16} /> 기업 분석 리포트
                                 </button>
                                 <button
                                     onClick={() => onNavigateToWorkspace()}
-                                    className="flex-[1.5] py-4 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-slate-900/20"
+                                    className="flex-[1.5] py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 text-sm"
                                 >
-                                    <Edit3 size={18} /> 자기소개서 작성하러 가기
+                                    <Edit3 size={16} /> 자기소개서 작성하기
                                 </button>
                             </div>
                         </motion.div>
@@ -493,15 +473,14 @@ export default function CompanyAnalysisView({
     );
 }
 
-// Internal icons for modal
 function XIcon() {
-    return <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>;
+    return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>;
 }
 
 function LocationIcon() {
-    return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500 mt-1 shrink-0"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>;
+    return <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500 mt-0.5 shrink-0"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>;
 }
 
 function CalendarIcon() {
-    return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-green-500"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>;
+    return <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-500"><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></svg>;
 }

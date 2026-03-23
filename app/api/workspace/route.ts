@@ -46,7 +46,8 @@ export async function GET(req: NextRequest) {
                     tabs: si.items.map((it: any) => it.question),
                     questions: si.items.map((it: any) => it.aiGuide || ''),
                     contents: si.items.map((it: any) => it.answer || ''),
-                    charLimits: si.items.map((it: any) => it.charLimit || 700)
+                    charLimits: si.items.map((it: any) => it.charLimit || 700),
+                    evaluationResult: si.evaluationResult
                 }
             });
         }
@@ -63,9 +64,9 @@ export async function GET(req: NextRequest) {
 
         const formattedDocs = documents.map((si: any) => ({
             id: String(si.id),
-            title: si.title,
-            company: si.jobAnalysis?.companyName || si.manualCompanyName || '미지정',
-            job: si.jobRole?.roleTitle || si.manualJobTitle || '직무 미지정',
+            name: si.title,
+            companyName: si.jobAnalysis?.companyName || si.manualCompanyName || '미지정',
+            jobTitle: si.jobRole?.roleTitle || si.manualJobTitle || '',
             status: si.status,
             lastModified: si.updatedAt
         }));
@@ -92,7 +93,7 @@ export async function POST(req: NextRequest) {
 
         const { 
             id, name, status, tabs, questions, contents, charLimits, 
-            roleId, analysisId, companyName, jobTitle 
+            roleId, analysisId, companyName, jobTitle, evaluationResult 
         } = await req.json();
 
         // 트랜잭션으로 저장
@@ -108,7 +109,8 @@ export async function POST(req: NextRequest) {
                         roleId: roleId ? parseInt(roleId) : null,
                         analysisId: analysisId ? parseInt(analysisId) : null,
                         manualCompanyName: companyName || null,
-                        manualJobTitle: jobTitle || null
+                        manualJobTitle: jobTitle || null,
+                        evaluationResult: evaluationResult || null
                     }
                 });
 
@@ -124,7 +126,8 @@ export async function POST(req: NextRequest) {
                         roleId: roleId ? parseInt(roleId) : null,
                         analysisId: analysisId ? parseInt(analysisId) : null,
                         manualCompanyName: companyName || null,
-                        manualJobTitle: jobTitle || null
+                        manualJobTitle: jobTitle || null,
+                        evaluationResult: evaluationResult || null
                     }
                 });
             }

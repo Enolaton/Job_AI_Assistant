@@ -6,6 +6,7 @@ import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
+import { Brain } from 'lucide-react';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -30,68 +31,70 @@ export default function LoginPage() {
       toast.error('이메일 또는 비밀번호가 잘못되었습니다.');
       setError('이메일 또는 비밀번호가 일치하지 않습니다.');
       if (newAttempts >= 5) {
-        router.push('/'); // redirect to main page after 5 failures
+        router.push('/');
         return;
       }
       return;
     }
 
-    // 로그인 성공
     router.push('/dashboard');
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 p-4">
-      <div className="w-full max-w-md space-y-8 p-10 bg-white rounded-2xl shadow-xl border border-gray-100">
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
+      <div className="w-full max-w-sm space-y-8 p-8 bg-white rounded-2xl shadow-sm border border-slate-200">
         <div className="text-center">
-          <h2 className="text-4xl font-extrabold text-blue-600 tracking-tight">Bunny</h2>
-          <p className="mt-3 text-gray-500 font-medium">지능형 커리어 에이전트</p>
+          <div className="inline-flex items-center justify-center h-10 w-10 bg-blue-600 text-white rounded-lg mb-4">
+            <Brain size={20} />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Bunny</h2>
+          <p className="mt-1 text-slate-500 text-sm">계정에 로그인하세요</p>
         </div>
 
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit} noValidate>
+        <form className="space-y-5" onSubmit={handleSubmit} noValidate>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">이메일</label>
+              <label className="block text-xs font-semibold text-slate-500 mb-1.5 ml-0.5">이메일</label>
               <input
                 type="email"
                 required
                 placeholder="example@bunny.com"
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-slate-300"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">비밀번호</label>
+              <label className="block text-xs font-semibold text-slate-500 mb-1.5 ml-0.5">비밀번호</label>
               <input
                 type="password"
                 required
                 placeholder="••••••••"
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-slate-300"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
           </div>
 
-          <div className="flex items-center justify-between text-sm">
+          <div className="flex items-center justify-between text-xs">
             <div className="flex items-center">
-              <input id="remember-me" type="checkbox" className="h-4 w-4 text-blue-600 rounded border-gray-300" />
-              <label htmlFor="remember-me" className="ml-2 text-gray-600">로그인 유지</label>
+              <input id="remember-me" type="checkbox" className="h-3.5 w-3.5 text-blue-600 rounded border-slate-300" />
+              <label htmlFor="remember-me" className="ml-2 text-slate-500">로그인 유지</label>
             </div>
           </div>
 
           <button
             type="submit"
-            className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold text-lg hover:bg-blue-700 transform transition-all active:scale-[0.98] shadow-lg shadow-blue-200"
+            className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium text-sm hover:bg-blue-700 transition-colors shadow-sm"
           >
             로그인
           </button>
 
-          <div className="text-center text-sm text-gray-500">
+          <div className="text-center text-xs text-slate-500">
             계정이 없으신가요?
             <Link href="/register">
-              <span className="ml-2 text-blue-600 font-bold hover:underline cursor-pointer">회원가입</span>
+              <span className="ml-1.5 text-blue-600 font-semibold hover:underline cursor-pointer">회원가입</span>
             </Link>
           </div>
         </form>

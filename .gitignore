@@ -235,20 +235,14 @@ Thumbs.db
 # Testing
 coverage/
 
-# analysis_final.py
-analysis_final.py
 .env
 google_key.json
 __pycache__/
 public/uploads/*
 !public/uploads/.gitkeep
-test*.js
-test-*.js
-debug_screenshot.png
 
-# 임시 스크립트 및 테스트 (Temporary scripts & tests)
-dart/
-tmp/
+# DART 기업 공시 코드
+dart/dart_corp_codes.csv
 
 # 프로젝트 규칙
 rules.md

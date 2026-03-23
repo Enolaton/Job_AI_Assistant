@@ -34,56 +34,76 @@ def generate_si_draft(api_key, question, max_chars, job_data, experiences, dart_
     model = get_model(api_key)
     
     # --- 1. Data Processing ---
-    # Job analysis data formatting
     jd_summary = json.dumps(job_data, ensure_ascii=False, indent=2)
     
-    # Experience (Resume) data formatting
-    # experiences should be a list of Project/Experience objects
-    exp_summary = json.dumps(experiences, ensure_ascii=False, indent=2)
-    m_limit = int(max_chars)
+    # 이력서 데이터 (Experiences)
+    resume_summary = json.dumps(experiences, ensure_ascii=False, indent=2)
     
-    # Pre-process Data for Prompts
-    jd_str = json.dumps(job_data, ensure_ascii=False, indent=2)
-    exp_str = json.dumps(experiences, ensure_ascii=False, indent=2)
-    dart_str = ""
+    # DART 데이터
+    dart_section = ""
     if dart_data:
-        dart_str = json.dumps(dart_data, ensure_ascii=False, indent=2)
+        selected_dart = {
+            "business_overview": dart_data.get("business_overview", ""),
+            "products_services": dart_data.get("products_services", "")
+        }
+        dart_summary = json.dumps(selected_dart, ensure_ascii=False, indent=2)
+        dart_section = f"\n    [기업 분석 데이터 (DART)]\n    {dart_summary}\n    "
 
     # Step 1: Strategy Formulation
     strategy_prompt = f"""
-    당신은 신입/경력 채용 전문 자소서 컨설턴트입니다.
-    질문: {question}
-    최종 목표 분량: 공백 포함 {m_limit}자 이내.
+    당신은 한국 대기업 채용 자기소개서 작성을 전문으로 하는 10년 차 취업 컨설턴트입니다.
+    아래 제공되는 데이터를 종합적으로 분석하여, 주어진 자기소개서 문항에 대한 **구체적인 작성 전략**을 수립해 주세요.
 
-    아래 데이터를 분석하여 '{m_limit}'자 분량에 맞춘 최적의 전략을 짜세요.
-    JD: {jd_str}
-    경험: {exp_str}
-    기업분석: {dart_str}
+    [자기소개서 문항]
+    질문: {question}
+    글자 수 제한: {max_chars}자
+
+    [채용 공고 (JD)]
+    {jd_summary}
+    {dart_section}
+    [지원자 이력서 데이터]
+    {resume_summary}
+
+    [작성 전략 수립 지침]
+    1. 문항의 의도를 정확히 파악하고, 해당 문항이 요구하는 핵심 역량/가치를 명시하세요.
+    2. 지원자의 이력서 데이터에서 이 문항에 가장 적합한 경험/스킬/프로젝트를 선별하세요.
+    3. DART 데이터가 있다면 기업의 사업 방향과 연결 짓는 방법을 제시하세요.
+    4. 글의 구조(도입-본론-마무리)를 제안하고, 각 파트에서 다룰 핵심 내용을 명시하세요.
+    5. 글자 수 제한({max_chars}자)을 고려한 분량 배분을 제안하세요.
+    6. JD의 직무 요구사항과 지원자 경험을 어떻게 연결할지 구체적으로 서술하세요.
+
+    [출력 형식]
+    한국어로 작성하되, 마크다운 형식 없이 읽기 쉬운 플레인 텍스트로 작성하세요.
     """
     
     strategy_res = model.generate_content(strategy_prompt)
     strategy = strategy_res.text.strip()
 
-    # Step 2: Final Draft Generation (with strict limit)
-    # Give AI a slightly smaller targets (e.g. 90% of limit) to avoid spill-over
-    safe_target = int(m_limit * 0.95)
-
+    # Step 2: Final Draft Generation
     draft_prompt = f"""
-    당신은 자소서 작성 전문가입니다.
-    아래 전략을 바탕으로 **공백 포함 반드시 {m_limit}자 이내 (권장 {safe_target}자)**로 작성하세요.
+    당신은 한국 대기업 채용 자기소개서 작성을 전문으로 하는 10년 차 취업 컨설턴트입니다.
+    아래 수립된 작성 전략과 데이터를 바탕으로 자기소개서 초안을 작성해 주세요.
 
-    전략: {strategy}
+    [자기소개서 문항]
+    질문: {question}
+    글자 수 제한: {max_chars}자
 
-    [입력 데이터 요약]
-    - 질문: {question}
-    - {m_limit}자를 넘으면 절대 안 됩니다.
-    - 데이터: {jd_str[:500]} / {exp_str[:800]}
+    [작성 전략]
+    {strategy}
 
-    [작성 수칙 - 필수]
-    1. **마크다운 서식 금지**: `**`, `*`, `__`, `#` 등의 기호를 절대 사용하지 마세요. 강조하고 싶다면 문맥이나 단어 선택으로 하세요.
-    2. **글자 수 절대 준수**: 공백 포함 {m_limit}자를 절대 넘지 마세요.
-    3. **소제목**: [ ] 형태의 소제목 하나만 사용하세요. (예: [데이터로 성과를 증명하다])
-    4. **순수 본문**: 마크다운 없이 줄바꿈과 텍스트만 출력하세요.
+    [채용 공고 (JD)]
+    {jd_summary}
+    {dart_section}
+    [지원자 이력서 데이터]
+    {resume_summary}
+
+    [작성 지침]
+    1. 반드시 위 작성 전략의 구조와 내용을 충실히 따르세요.
+    2. 글자 수 제한({max_chars}자)을 엄격히 지켜 주세요. 공백 포함 {max_chars}자를 초과하면 안 됩니다.
+    3. 지원자의 실제 경험과 데이터에 기반하여 작성하세요. 없는 사실을 지어내지 마세요.
+    4. 자연스러운 한국어로 작성하되, 지나치게 문어체이거나 AI 생성 느낌이 나지 않도록 주의하세요.
+    5. 구체적인 수치, 프로젝트명, 성과 등을 포함하여 진정성 있게 작성하세요.
+    6. 마크다운 기호(`**`, `*`, `__` 등)나 제목 태그 없이 순수한 자기소개서 본문 텍스트만 출력하세요.
     """
     
     draft_res = model.generate_content(draft_prompt)
@@ -94,11 +114,10 @@ def generate_si_draft(api_key, question, max_chars, job_data, experiences, dart_
     for markdown_symbol in ["**", "__", "*", "_"]:
         draft = draft.replace(markdown_symbol, "")
 
-    if len(draft) > m_limit:
-        # If way over, cut and try to end at the last full sentence
-        truncated = draft[:m_limit]
+    if len(draft) > int(max_chars):
+        truncated = draft[:int(max_chars)]
         last_period = truncated.rfind('.')
-        if last_period != -1 and last_period > (m_limit * 0.7):
+        if last_period != -1 and last_period > (int(max_chars) * 0.7):
             draft = truncated[:last_period + 1]
         else:
             draft = truncated
