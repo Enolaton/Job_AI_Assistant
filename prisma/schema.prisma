@@ -89,6 +89,7 @@ model SelfIntroduction {
   items       SelfIntroItem[]
   jobAnalysis JobAnalysis?    @relation(fields: [analysisId], references: [id])
   jobRole     JobRole?        @relation(fields: [roleId], references: [id])
+  evaluationResult Json?     @map("evaluation_result")
   user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("self_introductions")

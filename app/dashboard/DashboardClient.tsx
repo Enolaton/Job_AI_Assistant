@@ -166,29 +166,17 @@ export default function DashboardClient() {
 
             {/* Main Content */}
             <main className="flex-1 flex flex-col h-screen overflow-hidden">
-                <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0">
-                    <div className="flex items-center gap-4">
-                        <h2 className="text-lg font-bold text-slate-900 capitalize">
+                <header className="h-14 bg-white border-b border-slate-200 flex items-center px-6 shrink-0">
+                    <div className="flex items-center gap-2 text-sm">
+                        <span className="text-slate-400 font-medium">Bunny</span>
+                        <span className="text-slate-300">/</span>
+                        <span className="text-slate-900 font-semibold">
                             {currentView === 'experience' ? '경험 뱅크' :
                                 currentView === 'workspace' ? '자기소개서' :
                                     currentView === 'analysis' ? '공고 분석' :
                                         currentView === 'interview' ? 'AI 모의 면접' : 
                                             currentView === 'resumes' ? '이력서 관리' : '대시보드'}
-                        </h2>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <div className="relative hidden md:block">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                            <input
-                                className="pl-10 pr-4 py-2 w-64 bg-slate-100 border-none rounded-lg text-sm focus:ring-2 focus:ring-blue-600/20 focus:outline-none"
-                                placeholder="검색..."
-                                type="text"
-                            />
-                        </div>
-                        <button className="p-2 text-slate-500 hover:text-blue-600 transition-colors relative">
-                            <Bell size={20} />
-                            <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-red-500 rounded-full border-2 border-white"></span>
-                        </button>
+                        </span>
                     </div>
                 </header>
 
