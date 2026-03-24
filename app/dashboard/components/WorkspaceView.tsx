@@ -840,7 +840,15 @@ function EditQuestionModal({ isOpen, onClose, currentQuestion, currentLimit, onS
                     <div className="space-y-2">
                         <label className="text-xs font-medium text-slate-500 ml-0.5">글자 수 제한</label>
                         <div className="flex items-center gap-4">
-                            <input type="number" value={limit} onChange={(e) => setLimit(parseInt(e.target.value))} className="flex-1 p-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-semibold text-slate-900" />
+                            <input 
+                                type="number" 
+                                value={isNaN(limit) ? '' : limit} 
+                                onChange={(e) => {
+                                    const val = parseInt(e.target.value);
+                                    setLimit(isNaN(val) ? 0 : val);
+                                }} 
+                                className="flex-1 p-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-semibold text-slate-900" 
+                            />
                             <span className="text-slate-400 font-bold">Characters</span>
                         </div>
                     </div>
