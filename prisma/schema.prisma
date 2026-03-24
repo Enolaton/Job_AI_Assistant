@@ -16,11 +16,11 @@ model User {
   role              String             @default("USER")
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
+  companyReports    CompanyReport[]
   experiences       Experience[]
   jobAnalyses       JobAnalysis[]
   selfIntroductions SelfIntroduction[]
   documents         UserDocument[]
-  companyReports    CompanyReport[]
 
   @@map("users")
 }
@@ -48,7 +48,7 @@ model JobAnalysis {
   companyName       String             @map("company_name")
   jdUrl             String?            @map("jd_url")
   jdRawText         String?            @map("jd_raw_text")
-  analysisResult    Json?              @map("analysis_result") // Legacy JSON storage
+  analysisResult    Json?              @map("analysis_result")
   createdAt         DateTime           @default(now()) @map("created_at")
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   jobRoles          JobRole[]
@@ -60,9 +60,9 @@ model JobAnalysis {
 model JobRole {
   id                Int                @id @default(autoincrement())
   analysisId        Int                @map("analysis_id")
-  roleTitle         String             @map("role_title") // 모집직무
-  department        String?            @map("department") // 모집부문
-  location          String?            @map("location")   // 근무지
+  roleTitle         String             @map("role_title")
+  department        String?            @map("department")
+  location          String?            @map("location")
   requirements      String?            @map("requirements")
   tasks             String?            @map("tasks")
   preferred         String?            @map("preferred")
@@ -74,23 +74,23 @@ model JobRole {
 }
 
 model SelfIntroduction {
-  id          Int             @id @default(autoincrement())
-  userId      String          @map("user_id")
-  analysisId  Int?            @map("analysis_id")
-  roleId      Int?            @map("role_id")
-  title       String          // Display title
-  name        String?         // Draft name (e.g., "초안 1")
-  isFinal     Boolean         @default(false) @map("is_final")
-  status      String          @default("작성전") @map("status")
-  manualCompanyName String?   @map("manual_company_name")
-  manualJobTitle    String?   @map("manual_job_title")
-  createdAt   DateTime        @default(now()) @map("created_at")
-  updatedAt   DateTime        @updatedAt @map("updated_at")
-  items       SelfIntroItem[]
-  jobAnalysis JobAnalysis?    @relation(fields: [analysisId], references: [id])
-  jobRole     JobRole?        @relation(fields: [roleId], references: [id])
-  evaluationResult Json?     @map("evaluation_result")
-  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                Int             @id @default(autoincrement())
+  userId            String          @map("user_id")
+  analysisId        Int?            @map("analysis_id")
+  roleId            Int?            @map("role_id")
+  title             String
+  name              String?
+  isFinal           Boolean         @default(false) @map("is_final")
+  status            String          @default("작성전") @map("status")
+  manualCompanyName String?         @map("manual_company_name")
+  manualJobTitle    String?         @map("manual_job_title")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  evaluationResult  Json?           @map("evaluation_result")
+  items             SelfIntroItem[]
+  jobAnalysis       JobAnalysis?    @relation(fields: [analysisId], references: [id])
+  jobRole           JobRole?        @relation(fields: [roleId], references: [id])
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("self_introductions")
 }
@@ -109,15 +109,15 @@ model SelfIntroItem {
 }
 
 model UserDocument {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  type      String   // 'RESUME', 'COVER_LETTER', 'PORTFOLIO'
-  fileName  String   @map("file_name")
-  fileUrl   String   @map("file_url")
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  type        String
+  fileName    String   @map("file_name")
+  fileUrl     String   @map("file_url")
   contentJson Json?    @map("content_json")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_documents")
 }
@@ -126,7 +126,7 @@ model CompanyReport {
   id          Int      @id @default(autoincrement())
   userId      String   @map("user_id")
   companyName String   @map("company_name")
-  reportData  Json     @map("report_data") // Stores { analysis: { 인재상, 조직문화 }, news: [] }
+  reportData  Json     @map("report_data")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -135,18 +135,17 @@ model CompanyReport {
   @@map("company_reports")
 }
 
-// 신규: 기업 분석 정형 데이터 테이블
 model CompanyAnalysis {
-  id                Int      @id @default(autoincrement())
-  companyName       String   @unique @map("company_name")
-  idealCandidate    Json?    @map("ideal_candidate") // 인재상 (분절된 키워드 배열)
-  corporateCulture  Json?    @map("corporate_culture") // 조직문화 (분절된 키워드 배열)
-  businessSummary   String?  @map("business_summary") @db.Text
-  productSummary    String?  @map("product_summary") @db.Text
-  financialSummary  String?  @map("financial_summary") @db.Text
-  reportYear        String?  @map("report_year")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id               Int      @id @default(autoincrement())
+  companyName      String   @unique @map("company_name")
+  idealCandidate   Json?    @map("ideal_candidate")
+  corporateCulture Json?    @map("corporate_culture")
+  businessSummary  String?  @map("business_summary")
+  productSummary   String?  @map("product_summary")
+  financialSummary String?  @map("financial_summary")
+  reportYear       String?  @map("report_year")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   @@map("company_analyses")
 }
