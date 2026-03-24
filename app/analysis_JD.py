@@ -50,14 +50,24 @@ def match_phase1(company_name):
     try:
         df = pd.read_csv(CSV_PATH, dtype={'corp_code': str})
         cleaned_target = clean_company_name(company_name)
+        # 1. 정확히 일치 시도
         match = df[df['corp_name'] == cleaned_target]
-        if not match.empty: return match.iloc[0]['corp_code']
+        if not match.empty:
+            corp_code = match.iloc[0]['corp_code']
+            return corp_code
+            
+        # 2. 부분 일치 시도
         match = df[df['corp_name'].str.contains(cleaned_target, na=False)]
-        if not match.empty: return match.iloc[0]['corp_code']
-    except: pass
+        if not match.empty:
+            corp_code = match.iloc[0]['corp_code']
+            return corp_code
+            
+    except Exception as e:
+        pass
     return None
 
-def get_recent_business_report_no(corp_code):
+def get_candidate_reports(corp_code):
+    """[DART 단계 2] 고유번호로 우선순위에 따른 모든 후보 사업보고서 목록 조회"""
     url = "https://opendart.fss.or.kr/api/list.json"
     end_date = datetime.now().strftime('%Y%m%d')
     start_date = (datetime.now() - timedelta(days=1095)).strftime('%Y%m%d')
@@ -67,25 +77,32 @@ def get_recent_business_report_no(corp_code):
         'corp_code': corp_code,
         'bgn_de': start_date,
         'end_de': end_date,
-        'page_count': '20' # 더 넓게 탐색
+        'page_count': '15'
     }
+    candidates = []
     try:
         res = requests.get(url, params=params, verify=False, timeout=15)
         data = res.json()
-        if data.get('status') == '000' and data.get('list'):
-            # 우선순위 정의 (사업 > 반기 > 분기 > 감사)
+        
+        status = data.get('status')
+        if status == '000' and data.get('list'):
             priorities = ['사업보고서', '반기보고서', '분기보고서', '감사보고서']
             
             for priority in priorities:
                 for item in data['list']:
                     report_nm = item.get('report_nm', '')
                     if priority in report_nm:
-                        return item['rcept_no'], report_nm.split('(')[0].strip()
+                        candidates.append({
+                            'rcept_no': item['rcept_no'],
+                            'report_nm': report_nm.split('(')[0].strip(),
+                            'priority': priority
+                        })
     except Exception as e:
-        sys.stderr.write(f"DART 조회 에러: {e}\n")
-    return None, None
+        pass
+    return candidates
 
 def summarize_with_genai_dart(text, section_type):
+    """[DART 단계 4] 추출된 텍스트 AI 요약"""
     if not text or len(text) < 100: return "분석할 내용이 부족합니다."
     client = genai.Client(api_key=GOOGLE_API_KEY)
     prompts = {
@@ -95,36 +112,52 @@ def summarize_with_genai_dart(text, section_type):
     }
     try:
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.0-flash", 
             contents=f"{prompts.get(section_type, '핵심 요약')}\n\n내용:\n{text[:15000]}"
         )
         return response.text.strip()
-    except: return "요약 생성 오류"
+    except Exception as e:
+        return "요약 생성 오류"
 
 def analyze_dart_integrated(company_name):
+    """[DART 통합 인터페이스]"""
     corp_code = match_phase1(company_name)
     if not corp_code: return {"status": "error", "message": "기업 코드를 찾을 수 없습니다."}
     
-    rcept_no, report_nm = get_recent_business_report_no(corp_code)
-    if not rcept_no: return {"status": "error", "message": "최신 공고 보고서가 없습니다."}
+    candidates = get_candidate_reports(corp_code)
+    if not candidates: 
+        return {"status": "error", "message": "조건에 맞는 공고 보고서가 없습니다."}
     
-    url = f"https://opendart.fss.or.kr/api/document.xml?crtfc_key={DART_API_KEY}&rcept_no={rcept_no}"
-    try:
-        res = requests.get(url, verify=False, timeout=30)
-        with zipfile.ZipFile(io.BytesIO(res.content)) as z:
-            with z.open(z.namelist()[0]) as f:
-                soup = BeautifulSoup(f.read(), "html.parser")
-                full_text = soup.get_text()
-                return {
-                    "status": "success",
-                    "company_name": company_name,
-                    "report_year": report_nm.split(' ')[0] if report_nm else "",
-                    "business": summarize_with_genai_dart(full_text, "business"),
-                    "products": summarize_with_genai_dart(full_text, "products"),
-                    "financial": summarize_with_genai_dart(full_text, "financial")
-                }
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    for candidate in candidates:
+        rcept_no = candidate['rcept_no']
+        report_nm = candidate['report_nm']
+        priority = candidate['priority']
+        
+        url = f"https://opendart.fss.or.kr/api/document.xml?crtfc_key={DART_API_KEY}&rcept_no={rcept_no}"
+        try:
+            res = requests.get(url, verify=False, timeout=30)
+            is_zip = res.content.startswith(b'PK')
+            if not is_zip:
+                continue
+
+            with zipfile.ZipFile(io.BytesIO(res.content)) as z:
+                with z.open(z.namelist()[0]) as f:
+                    soup = BeautifulSoup(f.read(), "html.parser")
+                    full_text = soup.get_text()
+                    
+                    return {
+                        "status": "success",
+                        "company_name": company_name,
+                        "report_year": report_nm.split(' ')[0] if report_nm else "",
+                        "business": summarize_with_genai_dart(full_text, "business"),
+                        "products": summarize_with_genai_dart(full_text, "products"),
+                        "financial": summarize_with_genai_dart(full_text, "financial")
+                    }
+        except Exception as e:
+            continue
+            
+    return {"status": "error", "message": "사용 가능한 ZIP 형태의 보고서를 찾지 못했습니다."}
+
 
 # ─────────────────────────────────────────────
 # [모듈 2] JD 분석 엔진 (기본 로직 유지)
@@ -599,27 +632,19 @@ def main():
     try:
         if is_url:
             # [CASE 1] 채용공고 URL 분석 모드
-            sys.stderr.write(f"[JD 분석] 공고 페이지 접속 중... ({input_value})\n")
             screenshot, top_text, final_url = get_full_page_screenshot(input_value)  # type: ignore
             
             if screenshot is None:
-                sys.stderr.write("[오류] 스크린샷 캡처 실패\n")
                 raise Exception("스크린샷 캡처 실패")
 
-            sys.stderr.write("[JD 분석] 이미지 텍스트 추출 중(OCR)...\n")
             ocr_text = extract_text_with_google_vision(screenshot)
             
-            # 고도화된 물리적 절단 및 스레드 병렬 분석 프로세스로 교체
             combined_text = f"URL: {final_url}\nMETA:\n{top_text}\n\nBODY:\n{ocr_text}"
             structured_roles = summarize_with_openai(combined_text)
             company_name = structured_roles[0].get('회사명', '알 수 없음') if structured_roles else '알 수 없음'
 
-            sys.stderr.write(f"[JD 분석] DART 기업 정보 연동 중... ({company_name})\n")
-            # DART 분석 수행
-            dart_result = analyze_dart_integrated(company_name)
+            dart_result = None
             
-            sys.stderr.write("[JD 분석] 모든 분석 완료. 결과 출력 중...\n")
-            # 백엔드(route.ts)가 기대하는 규격(raw_text, structured)으로 출력 보정
             print(json.dumps({
                 "raw_text": ocr_text,
                 "structured": structured_roles,

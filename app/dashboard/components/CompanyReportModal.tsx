@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
     BarChart3, 
@@ -12,7 +12,8 @@ import {
     Loader2,
     PieChart,
     TrendingUp,
-    Briefcase as BusinessIcon
+    Briefcase as BusinessIcon,
+    Download
 } from 'lucide-react';
 
 interface CompanyReportModalProps {
@@ -45,6 +46,45 @@ export default function CompanyReportModal({
     jobTitle,
     onRefresh
 }: CompanyReportModalProps) {
+    const [isDownloading, setIsDownloading] = useState(false);
+
+    const handleDownload = async () => {
+        if (isDownloading || !data) return;
+        
+        try {
+            setIsDownloading(true);
+            const response = await fetch('/api/workspace/download-report', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    companyName,
+                    jobTitle,
+                    analysis: data.analysis,
+                    dart: data.dart,
+                    news: data.news,
+                    interviewPatterns: data.interviewPatterns
+                })
+            });
+
+            if (!response.ok) throw new Error('Download failed');
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${companyName}_기업분석리뷰.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        } catch (error) {
+            console.error('Download error:', error);
+            alert('PDF 생성 중 오류가 발생했습니다.');
+        } finally {
+            setIsDownloading(false);
+        }
+    };
+
     return (
         <AnimatePresence>
             {isOpen && (
@@ -67,6 +107,14 @@ export default function CompanyReportModal({
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
+                                <button
+                                    onClick={handleDownload}
+                                    disabled={isDownloading || isLoading || !data}
+                                    className="p-2 text-slate-400 hover:text-blue-600 hover:bg-white rounded-lg transition-all disabled:opacity-50"
+                                    title="PDF 다운로드"
+                                >
+                                    {isDownloading ? <Loader2 size={20} className="animate-spin text-blue-600" /> : <Download size={20} />}
+                                </button>
                                 <button
                                     onClick={onClose}
                                     className="p-2 text-slate-400 hover:text-slate-900 hover:bg-white rounded-lg transition-all"
