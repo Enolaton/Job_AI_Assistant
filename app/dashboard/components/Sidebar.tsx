@@ -1,0 +1,114 @@
+import React from 'react';
+import { 
+    Database, 
+    FileSearch, 
+    Edit3, 
+    Mic, 
+    Settings, 
+    HelpCircle, 
+    LogOut, 
+    Brain, 
+    UserCircle,
+    FileText
+} from 'lucide-react';
+
+interface NavItemProps {
+    icon: React.ReactNode;
+    label: string;
+    active?: boolean;
+    onClick?: () => void;
+    className?: string;
+}
+
+function NavItem({ icon, label, active, onClick, className }: NavItemProps) {
+    return (
+        <button
+            onClick={onClick}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-all ${active
+                ? 'bg-blue-50 text-blue-600'
+                : className || 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                }`}
+        >
+            <span className="shrink-0">{icon}</span>
+            <span className="truncate">{label}</span>
+        </button>
+    );
+}
+
+interface SidebarProps {
+    currentView: string;
+    setCurrentView: (view: any) => void;
+    userName: string;
+    userEmail: string;
+    signOut: (options: any) => void;
+}
+
+export default function Sidebar({
+    currentView,
+    setCurrentView,
+    userName,
+    userEmail,
+    signOut
+}: SidebarProps) {
+    return (
+        <aside className="bg-white border-r border-slate-200 flex flex-col w-[220px] shrink-0">
+            <div className="h-14 px-5 flex items-center gap-2.5 border-b border-slate-100">
+                <div className="h-8 w-8 bg-blue-600 text-white rounded-lg flex items-center justify-center shrink-0">
+                    <Brain size={18} />
+                </div>
+                <span className="text-[15px] font-bold tracking-tight text-slate-900">Bunny</span>
+            </div>
+
+            <nav className="flex-1 overflow-y-auto px-3 pt-5 space-y-0.5 custom-scrollbar">
+                <p className="px-3 pb-2 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">서비스</p>
+                <NavItem 
+                    icon={<FileSearch size={18} />} 
+                    label="공고 분석" 
+                    active={currentView === 'analysis'} 
+                    onClick={() => setCurrentView('analysis')} 
+                />
+                <NavItem 
+                    icon={<Database size={18} />} 
+                    label="경험 뱅크" 
+                    active={currentView === 'experience'} 
+                    onClick={() => setCurrentView('experience')} 
+                />
+                <NavItem 
+                    icon={<Edit3 size={18} />} 
+                    label="자기소개서" 
+                    active={currentView === 'workspace'} 
+                    onClick={() => setCurrentView('workspace')} 
+                />
+                <NavItem 
+                    icon={<Mic size={18} />} 
+                    label="AI 모의 면접" 
+                    active={currentView === 'interview'} 
+                    onClick={() => setCurrentView('interview')} 
+                />
+                <div className="pt-6">
+                    <p className="px-3 pb-2 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">설정</p>
+                    <NavItem icon={<Settings size={18} />} label="설정" />
+                    <NavItem icon={<HelpCircle size={18} />} label="고객지원" />
+                    <NavItem
+                        icon={<LogOut size={18} />}
+                        label="로그아웃"
+                        onClick={() => signOut({ callbackUrl: '/login' })}
+                        className="text-slate-400 hover:text-red-600 hover:bg-red-50"
+                    />
+                </div>
+            </nav>
+
+            <div className="p-3 border-t border-slate-100">
+                <div className="flex items-center gap-2.5 p-2.5 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer">
+                    <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 shrink-0">
+                        <UserCircle size={20} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-medium text-slate-900 truncate">{userName}</p>
+                        <p className="text-[11px] text-slate-400 truncate">{userEmail}</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    );
+}

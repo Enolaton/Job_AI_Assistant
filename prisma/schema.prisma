@@ -1,0 +1,151 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id                String             @id @default(uuid())
+  email             String             @unique
+  password          String
+  name              String
+  role              String             @default("USER")
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  companyReports    CompanyReport[]
+  experiences       Experience[]
+  jobAnalyses       JobAnalysis[]
+  selfIntroductions SelfIntroduction[]
+  documents         UserDocument[]
+
+  @@map("users")
+}
+
+model Experience {
+  id        Int       @id @default(autoincrement())
+  userId    String    @map("user_id")
+  title     String
+  situation String?
+  task      String?
+  action    String?
+  result    String?
+  insight   String?
+  startedAt DateTime? @map("started_at")
+  endedAt   DateTime? @map("ended_at")
+  tags      Json?     @default("[]")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("experiences")
+}
+
+model JobAnalysis {
+  id                Int                @id @default(autoincrement())
+  userId            String             @map("user_id")
+  companyName       String             @map("company_name")
+  jdUrl             String?            @map("jd_url")
+  jdRawText         String?            @map("jd_raw_text")
+  analysisResult    Json?              @map("analysis_result")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobRoles          JobRole[]
+  selfIntroductions SelfIntroduction[]
+
+  @@map("job_analyses")
+}
+
+model JobRole {
+  id                Int                @id @default(autoincrement())
+  analysisId        Int                @map("analysis_id")
+  roleTitle         String             @map("role_title")
+  department        String?            @map("department")
+  location          String?            @map("location")
+  requirements      String?            @map("requirements")
+  tasks             String?            @map("tasks")
+  preferred         String?            @map("preferred")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  jobAnalysis       JobAnalysis        @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  selfIntroductions SelfIntroduction[]
+
+  @@map("job_roles")
+}
+
+model SelfIntroduction {
+  id                Int             @id @default(autoincrement())
+  userId            String          @map("user_id")
+  analysisId        Int?            @map("analysis_id")
+  roleId            Int?            @map("role_id")
+  title             String
+  name              String?
+  isFinal           Boolean         @default(false) @map("is_final")
+  status            String          @default("작성전") @map("status")
+  manualCompanyName String?         @map("manual_company_name")
+  manualJobTitle    String?         @map("manual_job_title")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  evaluationResult  Json?           @map("evaluation_result")
+  items             SelfIntroItem[]
+  jobAnalysis       JobAnalysis?    @relation(fields: [analysisId], references: [id])
+  jobRole           JobRole?        @relation(fields: [roleId], references: [id])
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("self_introductions")
+}
+
+model SelfIntroItem {
+  id                 Int              @id @default(autoincrement())
+  selfIntroductionId Int              @map("self_intro_id")
+  question           String
+  answer             String?
+  aiGuide            String?          @map("ai_guide")
+  charLimit          Int              @default(700) @map("char_limit")
+  orderIndex         Int              @map("order_index")
+  selfIntroduction   SelfIntroduction @relation(fields: [selfIntroductionId], references: [id], onDelete: Cascade)
+
+  @@map("self_intro_items")
+}
+
+model UserDocument {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  type        String
+  fileName    String   @map("file_name")
+  fileUrl     String   @map("file_url")
+  contentJson Json?    @map("content_json")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_documents")
+}
+
+model CompanyReport {
+  id          Int      @id @default(autoincrement())
+  userId      String   @map("user_id")
+  companyName String   @map("company_name")
+  reportData  Json     @map("report_data")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, companyName])
+  @@map("company_reports")
+}
+
+model CompanyAnalysis {
+  id               Int      @id @default(autoincrement())
+  companyName      String   @unique @map("company_name")
+  idealCandidate   Json?    @map("ideal_candidate")
+  corporateCulture Json?    @map("corporate_culture")
+  businessSummary  String?  @map("business_summary")
+  productSummary   String?  @map("product_summary")
+  financialSummary String?  @map("financial_summary")
+  reportYear       String?  @map("report_year")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("company_analyses")
+}
