@@ -141,4 +141,4 @@ npm run dev
 본 솔루션은 단순한 텍스트 생성을 넘어 **'데이터 정합성'**에 집중합니다. 사용자의 과거 경험 데이터와 지원하려는 공고 사이의 논리적 연결 고리를 AI가 검증함으로써, 인위적이지 않고 설득력 있는 지원 전략을 제시합니다.
 
 ---
-© 2026 JobAI Assist Project Team. All rights reserved.
+© 2026 Job AI Assist Project Team. All rights reserved.
