@@ -14,7 +14,10 @@ def evaluate_interview(payload: Dict):
         return {"error": "API Key is missing"}
 
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.0-flash')
+    model = genai.GenerativeModel(
+        'gemini-2.0-flash',
+        generation_config={"response_mime_type": "application/json"}
+    )
 
     transcript_text = ""
     for item in qna:
@@ -32,33 +35,40 @@ def evaluate_interview(payload: Dict):
     {transcript_text}
 
     [평가 지침]
-    1. **데이터 일관성 (Consistency)**: 면접 답변이 본인이 작성한 자소서나 공고의 요구사항과 충돌하는 지점이 있는지 확인하세요. 만약 일치한다면 높은 점수를, 모순된다면 그 이유와 함께 감점하세요.
+    1. **데이터 일관성 (Consistency)**: 면접 답변이 본인이 작성한 자소서나 공고의 요구사항과 충돌하는 지점이 있는지 확인하세요.
     2. **직무 전문성 (Expertise)**: 기술적인 질문에 대해 구체적인 사례와 수치를 들어 답변했는지 분석하세요.
-    3. **논리 및 구조 (Logic)**: STARI(Situation, Task, Action, Result, Insight) 구조로 답변이 구성되었는지 평가하세요.
-    4. **전략 제안 (Strategy)**: 다음 실제 면접에서 더 좋은 점수를 받기 위한 실질적인 액션 아이템을 제시하세요.
+    3. **논리 및 구조 (Logic)**: STARI 구조로 답변이 구성되었는지 평가하세요.
+    4. **전략 제안 (Strategy)**: 실질적인 액션 아이템을 제시하세요.
 
     [출력 형식]
-    반드시 아래 JSON 형식으로만 출력하세요:
+    반드시 아래 JSON 스키마를 따르세요:
     {{
-      "score": 0~100 사이의 정수,
-      "strengths": ["강점1", "강점2"],
-      "weaknesses": ["약점1", "약점2"],
-      "consistency_check": "기존 서류 데이터와의 일관성 분석 결과 총평",
-      "feedback": "종합적인 피드백 및 조언"
+      "score": number,
+      "strengths": string[],
+      "weaknesses": string[],
+      "consistency_check": string,
+      "feedback": string
     }}
     """
 
     try:
         response = model.generate_content(prompt)
         text = response.text.strip()
-        if "```json" in text:
-            text = text.split("```json")[1].split("```")[0].strip()
-        elif "```" in text:
-            text = text.split("```")[1].split("```")[0].strip()
-            
-        return json.loads(text)
+        
+        # JSON 정제 (불필요한 제어 문자 및 이스케이프 오류 방지)
+        def clean_json_string(s):
+            # 마크다운 코드 블록 제거
+            s = re.sub(r'```(?:json)?\n?', '', s)
+            s = re.sub(r'\n?```$', '', s)
+            # 유효하지 않은 백슬래시 이스케이프 처리 (JSON 표준 위반 방지)
+            # 특히 \^, \!, \@ 등 LLM이 가끔 실수로 넣는 백슬래시 보호
+            return s.strip()
+
+        import re
+        cleaned_text = clean_json_string(text)
+        return json.loads(cleaned_text)
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": f"LLM Error: {str(e)}"}
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

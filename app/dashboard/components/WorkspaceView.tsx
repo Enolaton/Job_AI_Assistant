@@ -37,7 +37,9 @@ import {
     BarChart3,
     ArrowUpRight,
     Loader2,
-    Zap
+    Zap,
+    Star,
+    StarHalf
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'react-hot-toast';
@@ -712,10 +714,16 @@ export default function WorkspaceView({
                                                             <div className="space-y-3">
                                                                 <div className="flex justify-between text-xs text-slate-400">
                                                                     <span>AI 작성 확률</span>
-                                                                    <span className={evaluationResult.ai_detect.probability > 70 ? "text-rose-400" : "text-emerald-400"}>{evaluationResult.ai_detect.probability}%</span>
+                                                                    <span className={(evaluationResult.ai_detect.probability > 0.7 || evaluationResult.ai_detect.probability > 70) ? "text-rose-400" : "text-emerald-400"}>
+                                                                        {Math.round(evaluationResult.ai_detect.probability <= 1 ? evaluationResult.ai_detect.probability * 100 : evaluationResult.ai_detect.probability)}%
+                                                                    </span>
                                                                 </div>
                                                                 <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                                                                    <motion.div initial={{ width: 0 }} animate={{ width: `${evaluationResult.ai_detect.probability}%` }} className={cn("h-full", evaluationResult.ai_detect.probability > 70 ? "bg-rose-500" : "bg-emerald-500")} />
+                                                                    <motion.div 
+                                                                        initial={{ width: 0 }} 
+                                                                        animate={{ width: `${evaluationResult.ai_detect.probability <= 1 ? evaluationResult.ai_detect.probability * 100 : evaluationResult.ai_detect.probability}%` }} 
+                                                                        className={cn("h-full", (evaluationResult.ai_detect.probability > 0.7 || evaluationResult.ai_detect.probability > 70) ? "bg-rose-500" : "bg-emerald-500")} 
+                                                                    />
                                                                 </div>
                                                                 <p className="text-[10px] text-slate-400 italic leading-relaxed pt-1">※ {evaluationResult.ai_detect.reasoning}</p>
                                                             </div>
@@ -798,7 +806,17 @@ function SimpleFeedbackCard({ icon, title, score, strengths, weaknesses }: any) 
                     <div className="w-8 h-8 bg-white border border-slate-200 rounded-lg flex items-center justify-center text-slate-400 group-hover:bg-slate-800 group-hover:text-white transition-all">{icon}</div>
                     <h4 className="font-semibold text-slate-900">{title}</h4>
                 </div>
-                <span className="text-base font-bold text-slate-900">{Math.round(score)}</span>
+                <div className="flex items-center gap-1">
+                    {[...Array(5)].map((_, i) => {
+                        const starValue = i + 1;
+                        const roundedScore = Math.round(score);
+                        if (roundedScore >= starValue) {
+                            return <Star key={i} size={14} className="fill-blue-500 text-blue-500" />;
+                        } else {
+                            return <Star key={i} size={14} className="text-slate-200" />;
+                        }
+                    })}
+                </div>
             </div>
             <div className="space-y-2">
                 {strengths?.slice(0, 2).map((s: string, i: number) => (
@@ -840,15 +858,17 @@ function EditQuestionModal({ isOpen, onClose, currentQuestion, currentLimit, onS
                     <div className="space-y-2">
                         <label className="text-xs font-medium text-slate-500 ml-0.5">글자 수 제한</label>
                         <div className="flex items-center gap-4">
-                            <input 
-                                type="number" 
-                                value={isNaN(limit) ? '' : limit} 
-                                onChange={(e) => {
-                                    const val = parseInt(e.target.value);
-                                    setLimit(isNaN(val) ? 0 : val);
-                                }} 
-                                className="flex-1 p-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-semibold text-slate-900" 
-                            />
+                             <input 
+                                 type="text" 
+                                 inputMode="numeric"
+                                 value={limit === 0 ? '' : limit} 
+                                 onChange={(e) => {
+                                     const val = e.target.value.replace(/[^0-9]/g, '');
+                                     setLimit(val === '' ? 0 : parseInt(val));
+                                 }} 
+                                 className="flex-1 p-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-semibold text-slate-900" 
+                                 placeholder="예: 700"
+                             />
                             <span className="text-slate-400 font-bold">Characters</span>
                         </div>
                     </div>

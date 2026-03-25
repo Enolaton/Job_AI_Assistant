@@ -182,15 +182,29 @@ def run_evaluation(api_key, question, answer, job_data):
     ai_prompt = get_ai_detection_si_prompt(answer, cv_val)
 
     def parse_gemini(text):
-        if "```" in text:
-            text = re.sub(r'```(?:json)?', '', text).strip()
-        start = text.find('{{')
-        end = text.rfind('}}') + 1
+        if not text: return {}
+        # 마크다운 코드 블록 제거 및 정제
+        text = re.sub(r'```(?:json)?', '', text).strip()
+        text = re.sub(r'```$', '', text).strip()
+        
+        start = text.find('{')
+        end = text.rfind('}') + 1
         if start != -1 and end != 0:
             text = text[start:end]
-        return json.loads(text) if text else {}
+            
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            # 유효하지 않은 드문 제어 문자나 잘못된 이스케이프(\) 처리 시도
+            # 특히 LLM이 "피드백: \^o^/" 처럼 쓸 때 발생하는 오류 방지
+            text = re.sub(r'\\(?![/"\\bfnrtu])', r'\\\\', text)
+            try:
+                return json.loads(text)
+            except:
+                return {}
 
     try:
+        # 각 페르소나별로 JSON 모드 강제 적용 (이미 get_model에서 설정됨)
         res1 = model.generate_content(manager_prompt).text
         res2 = model.generate_content(hr_prompt).text
         res3 = model.generate_content(ai_prompt).text
