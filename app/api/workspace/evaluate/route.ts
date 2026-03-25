@@ -90,7 +90,15 @@ export async function POST(req: NextRequest) {
 }
 
 function jsonCleaner(str: string) {
-    const start = str.indexOf('{');
-    const end = str.lastIndexOf('}') + 1;
-    return JSON.parse(str.substring(start, end));
+    try {
+        const start = str.indexOf('{');
+        const end = str.lastIndexOf('}') + 1;
+        if (start === -1 || end === 0) {
+            return JSON.parse(str.trim());
+        }
+        return JSON.parse(str.substring(start, end));
+    } catch (e) {
+        console.error('JSON Cleaner Error:', e, 'Raw string:', str);
+        return { success: false, error: 'AI 응답 형식이 올바르지 않습니다.' };
+    }
 }
