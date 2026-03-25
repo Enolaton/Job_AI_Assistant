@@ -35,8 +35,8 @@ export async function POST(req: NextRequest) {
         const companyName = cleanName(rawCompanyName);
 
         const serviceScriptPath = path.join(process.cwd(), 'company_info', 'company_service.py');
-        // [수정] run_pipeline.py 대신 통합 엔진인 analysis_JD.py 호출
-        const dartScriptPath = path.join(process.cwd(), 'app', 'analysis_JD.py');
+        // [수정] DART 전용 엔진으로 분리된 company_dart.py 호출
+        const dartScriptPath = path.join(process.cwd(), 'company_info', 'company_dart.py');
         const venvPythonPath = path.join(process.cwd(), '.venv', 'Scripts', 'python.exe');
         const pythonExecutable = fs.existsSync(venvPythonPath) ? venvPythonPath : 'python';
 
@@ -184,7 +184,14 @@ export async function POST(req: NextRequest) {
             console.log(`[DB UPDATED] '${companyName}' 기업 글로벌 캐시(CompanyAnalysis) 업데이트 완료`);
         }
 
-        // 개인별 리포트 보기 이력 갱신 (불변성이 없고 실시간으로 변하는 뉴스만 저장하여 DB를 100% 정규화/경량화)
+        // 개인별 리포트 보기 이력 갱신 (핵심 분석 결과들을 통합하여 저장)
+        const reportData = {
+            companyName,
+            news: realTimeNews,
+            analysis: finalAnalysis,
+            dart: finalDart
+        };
+
         await (prisma as any).companyReport.upsert({
             where: {
                 userId_companyName: {
@@ -193,16 +200,12 @@ export async function POST(req: NextRequest) {
                 }
             },
             update: {
-                reportData: {
-                    news: realTimeNews
-                }
+                reportData: reportData
             },
             create: {
                 userId: user.id,
-                companyName: companyName,
-                reportData: {
-                    news: realTimeNews
-                }
+                companyName,
+                reportData: reportData
             }
         });
 

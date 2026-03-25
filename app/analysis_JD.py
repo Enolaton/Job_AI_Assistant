@@ -4,170 +4,34 @@ import time
 import base64
 import json
 import re
-import requests
-import zipfile
-import io
-import pandas as pd
-from datetime import datetime, timedelta
-from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 import urllib3
 import warnings
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from urllib.parse import urlparse
 
-# 경고 메시지 차단
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
-
+# Selenium & AI Imports
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from google.cloud import vision
 from dotenv import load_dotenv
+
 try:
     from google import genai
     from google.genai import types
 except ImportError:
     sys.stderr.write("오류: google-genai 라이브러리가 설치되지 않았습니다.\n")
 
+# 경고 메시지 차단
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 load_dotenv()
 
-# --- 설정 및 경로 ---
-# 파일 위치가 app/ 폴더이므로 BASE_DIR은 프로젝트 루트가 됨
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CSV_PATH = os.path.join(BASE_DIR, "dart", "dart_corp_codes.csv")
-DART_API_KEY = os.getenv("DART_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 # ─────────────────────────────────────────────
-# [모듈 1] DART 분석 엔진 (원본 복원 로직)
+# [모듈 1] JD 분석 엔진 (OCR & AI 분석 전용)
 # ─────────────────────────────────────────────
-
-def clean_company_name(name):
-    if not name: return ""
-    name = re.sub(r"\(주\)|㈜|주식회사|유한회사|\(유\)", "", name)
-    return name.strip()
-
-def match_phase1(company_name):
-    if not os.path.exists(CSV_PATH):
-        sys.stderr.write(f"경고: 데이터 파일이 없습니다 ({CSV_PATH})\n")
-        return None
-    try:
-        df = pd.read_csv(CSV_PATH, dtype={'corp_code': str})
-        cleaned_target = clean_company_name(company_name)
-        # 1. 정확히 일치 시도
-        match = df[df['corp_name'] == cleaned_target]
-        if not match.empty:
-            corp_code = match.iloc[0]['corp_code']
-            return corp_code
-            
-        # 2. 부분 일치 시도
-        match = df[df['corp_name'].str.contains(cleaned_target, na=False)]
-        if not match.empty:
-            corp_code = match.iloc[0]['corp_code']
-            return corp_code
-            
-    except Exception as e:
-        pass
-    return None
-
-def get_candidate_reports(corp_code):
-    """[DART 단계 2] 고유번호로 우선순위에 따른 모든 후보 사업보고서 목록 조회"""
-    url = "https://opendart.fss.or.kr/api/list.json"
-    end_date = datetime.now().strftime('%Y%m%d')
-    start_date = (datetime.now() - timedelta(days=1095)).strftime('%Y%m%d')
-    
-    params = {
-        'crtfc_key': DART_API_KEY,
-        'corp_code': corp_code,
-        'bgn_de': start_date,
-        'end_de': end_date,
-        'page_count': '15'
-    }
-    candidates = []
-    try:
-        res = requests.get(url, params=params, verify=False, timeout=15)
-        data = res.json()
-        
-        status = data.get('status')
-        if status == '000' and data.get('list'):
-            priorities = ['사업보고서', '반기보고서', '분기보고서', '감사보고서']
-            
-            for priority in priorities:
-                for item in data['list']:
-                    report_nm = item.get('report_nm', '')
-                    if priority in report_nm:
-                        candidates.append({
-                            'rcept_no': item['rcept_no'],
-                            'report_nm': report_nm.split('(')[0].strip(),
-                            'priority': priority
-                        })
-    except Exception as e:
-        pass
-    return candidates
-
-def summarize_with_genai_dart(text, section_type):
-    """[DART 단계 4] 추출된 텍스트 AI 요약"""
-    if not text or len(text) < 100: return "분석할 내용이 부족합니다."
-    client = genai.Client(api_key=GOOGLE_API_KEY)
-    prompts = {
-        "business": "취업 준비생을 위한 사업 경쟁력 3줄 요약.",
-        "products": "수익 모델과 주요 서비스 3줄 요약.",
-        "financial": "재무 건전성과 연도별 실적 3줄 요약."
-    }
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.0-flash", 
-            contents=f"{prompts.get(section_type, '핵심 요약')}\n\n내용:\n{text[:15000]}"
-        )
-        return response.text.strip()
-    except Exception as e:
-        return "요약 생성 오류"
-
-def analyze_dart_integrated(company_name):
-    """[DART 통합 인터페이스]"""
-    corp_code = match_phase1(company_name)
-    if not corp_code: return {"status": "error", "message": "기업 코드를 찾을 수 없습니다."}
-    
-    candidates = get_candidate_reports(corp_code)
-    if not candidates: 
-        return {"status": "error", "message": "조건에 맞는 공고 보고서가 없습니다."}
-    
-    for candidate in candidates:
-        rcept_no = candidate['rcept_no']
-        report_nm = candidate['report_nm']
-        priority = candidate['priority']
-        
-        url = f"https://opendart.fss.or.kr/api/document.xml?crtfc_key={DART_API_KEY}&rcept_no={rcept_no}"
-        try:
-            res = requests.get(url, verify=False, timeout=30)
-            is_zip = res.content.startswith(b'PK')
-            if not is_zip:
-                continue
-
-            with zipfile.ZipFile(io.BytesIO(res.content)) as z:
-                with z.open(z.namelist()[0]) as f:
-                    soup = BeautifulSoup(f.read(), "html.parser")
-                    full_text = soup.get_text()
-                    
-                    return {
-                        "status": "success",
-                        "company_name": company_name,
-                        "report_year": report_nm.split(' ')[0] if report_nm else "",
-                        "business": summarize_with_genai_dart(full_text, "business"),
-                        "products": summarize_with_genai_dart(full_text, "products"),
-                        "financial": summarize_with_genai_dart(full_text, "financial")
-                    }
-        except Exception as e:
-            continue
-            
-    return {"status": "error", "message": "사용 가능한 ZIP 형태의 보고서를 찾지 못했습니다."}
-
-
-# ─────────────────────────────────────────────
-# [모듈 2] JD 분석 엔진 (기본 로직 유지)
-# ─────────────────────────────────────────────
-
-from urllib.parse import urlparse
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from google.cloud import vision
 
 # --- 공고 사이트별 정밀 셀렉터 설정 ---
 SITE_SELECTORS = {
@@ -228,7 +92,7 @@ def get_full_page_screenshot(url):
             top_text = driver.find_element(By.TAG_NAME, "body").text[:1000]
         except Exception: pass
         
-        # 2. 기초 노이즈 제거 (사이트 공통 및 사람인/잡코리아 특화)
+        # 2. 기초 노이즈 제거
         cleanup_js = """
         const noises = [
             'header', 'footer', 'nav', 'aside', '.gnb', '.popup', '.dimmed', '.jview_floating', 
@@ -243,28 +107,9 @@ def get_full_page_screenshot(url):
                 el.style.height = '0';
             });
         });
-        
-        // 특정 마커(공고 끝) 이후의 모든 형제 요소 숨기기
-        const endMarkers = [
-            '.jv_qna', '.jv_review', '.jv_cont_related', '#related_jobs', 
-            '#jv_howto', '#application-section', '#company-section', '.j_detail_btm'
-        ];
-        endMarkers.forEach(sel => {
-            const el = document.querySelector(sel);
-            if (el) {
-                let sibling = el;
-                while (sibling) {
-                    if (typeof sibling.style !== 'undefined') {
-                        sibling.style.display = 'none';
-                        sibling.style.height = '0';
-                    }
-                    sibling = sibling.nextElementSibling;
-                }
-            }
-        });
         """
         driver.execute_script(cleanup_js)
-
+ 
         # 2. 사이트별 정밀 영역 찾기
         target_selectors = []
         for key in SITE_SELECTORS:
@@ -281,35 +126,23 @@ def get_full_page_screenshot(url):
                     sys.stderr.write(f"[JD 캡처] 정밀 영역 감지 성공: {sel}\n")
                     break
             except: continue
-
-        # 3. Iframe (공고 본문) 처리 - 정밀 영역 못 찾았을 때의 폴백
+ 
         if not target_el:
-            target_iframe_selectors = [
-                "#iframe_content_0", 
-                "iframe[title*='상세']", 
-                "iframe[src*='GI_Read']", 
-                "iframe[title='채용상세']",
-                "iframe#ifr_view",
-                "iframe[src*='saramin']"
-            ]
+            target_iframe_selectors = ["#iframe_content_0", "iframe[title*='상세']", "iframe#ifr_view"]
             for selector in target_iframe_selectors:
                 try:
                     found_iframe = driver.find_element(By.CSS_SELECTOR, selector)
                     if found_iframe:
-                        sys.stderr.write("[JD 캡처] 본문 Iframe 감지.\n")
-                        target_el = found_iframe # Iframe을 타겟으로 설정
+                        target_el = found_iframe
                         break
                 except: continue
-
-        # 4. 타겟 영역 이미지 로딩 및 크기 측정
+ 
         if target_el:
-            # 4-1. 먼저 뷰포트 크기를 고정하여 레이아웃을 안정화 (가로 1280 기준)
             driver.execute_cdp_cmd("Emulation.setDeviceMetricsOverride", {
                 "width": 1280, "height": 2000, "deviceScaleFactor": 1, "mobile": False
             })
-            time.sleep(1) # 레이아웃 재배치 대기
-
-            # 4-2. 고정된 가로 너비(1280) 상태에서 정확한 좌표 측정
+            time.sleep(1)
+ 
             rect = driver.execute_script("""
                 const el = arguments[0];
                 el.scrollIntoView();
@@ -322,109 +155,77 @@ def get_full_page_screenshot(url):
                 };
             """, target_el)
             
-            # 4-3. 긴 이미지 대비 점진적 스크롤 (이미지 로딩 유도)
-            curr = rect['y']
-            limit = rect['y'] + rect['height']
-            while curr < limit:
-                driver.execute_script(f"window.scrollTo(0, {curr});")
-                curr += 1200
-                time.sleep(0.3)
-            
-            # 다시 타겟 상단으로
             driver.execute_script(f"window.scrollTo(0, {rect['y']});")
             time.sleep(1)
-
-            # 5. CDP 정밀 캡처 (클리핑)
-            sys.stderr.write(f"[JD 캡처] 본문 정밀 캡처 ([X:{int(rect['x'])}] {int(rect['width'])} x {int(rect['height'])})\n")
+ 
+            sys.stderr.write(f"[JD 캡처] 본문 정밀 캡처 ({int(rect['width'])} x {int(rect['height'])})\n")
             
-            # 최종 높이에 맞춰 다시 한번 메트릭 설정 (잘림 방지)
             driver.execute_cdp_cmd("Emulation.setDeviceMetricsOverride", {
                 "width": 1280, "height": int(rect['y'] + rect['height'] + 1000), "deviceScaleFactor": 1, "mobile": False
             })
-            
-            # 캡처 시 좌우 여백을 아주 조금 더 줌 (안정성 위함)
-            capture_x = max(0, rect['x'] - 5)
-            capture_w = rect['width'] + 10
             
             result = driver.execute_cdp_cmd("Page.captureScreenshot", {
                 "format": "png", 
                 "fromSurface": True, 
                 "captureBeyondViewport": True,
                 "clip": {
-                    "x": capture_x,
+                    "x": max(0, rect['x'] - 5),
                     "y": rect['y'],
-                    "width": capture_w,
+                    "width": rect['width'] + 10,
                     "height": rect['height'],
                     "scale": 1
                 }
             })
-            return base64.b64decode(result['data']), top_text, driver.current_url
 
-        # --- 정밀 영역을 못 찾은 경우의 기존 폴백 로직 ---
-        sys.stderr.write("[JD 캡처] 정밀 영역 탐색 실패, 전체 페이지 폴백 실행\n")
-        total_h = driver.execute_script("return document.documentElement.scrollHeight")
-        curr_h = 0
-        while curr_h < total_h:
-            driver.execute_script(f"window.scrollTo(0, {curr_h});")
-            curr_h += 1500
-            time.sleep(0.1)
-        
+            return base64.b64decode(result['data']), top_text, driver.current_url
+ 
+        # 폴백
         layout = driver.execute_cdp_cmd("Page.getLayoutMetrics", {})
-        width = 1280
-        height = min(layout['contentSize']['height'], 15000)
-        
         driver.execute_cdp_cmd("Emulation.setDeviceMetricsOverride", {
-            "width": width, "height": height, "deviceScaleFactor": 1, "mobile": False
+            "width": 1280, "height": min(layout['contentSize']['height'], 15000), "deviceScaleFactor": 1, "mobile": False
         })
         time.sleep(2)
-        
-        result = driver.execute_cdp_cmd("Page.captureScreenshot", {
-            "format": "png", "fromSurface": True, "captureBeyondViewport": True
-        })
-        return base64.b64decode(result['data']), top_text, driver.current_url
+        result = driver.execute_cdp_cmd("Page.captureScreenshot", {"format": "png", "fromSurface": True, "captureBeyondViewport": True})
 
+        return base64.b64decode(result['data']), top_text, driver.current_url
+ 
     except Exception as e:
-        sys.stderr.write(f"[JD 캡처] 캡처 중 오류: {e}\n")
+        sys.stderr.write(f"[JD 캡처] 오류: {e}\n")
         return None, "", url
     finally:
         driver.quit()
-
+ 
 def extract_text_with_google_vision(image_bytes):
     client = vision.ImageAnnotatorClient()
     image = vision.Image(content=image_bytes)
     response = client.document_text_detection(image=image)
-    return response.text_annotations[0].description if response.text_annotations else ""
-
-# ─────────────────────────────────────────────
-# [모듈 3] 고도화 병렬 분석 엔진 (old_analysis_JD 이식)
-# ─────────────────────────────────────────────
-
+    ocr_text = response.text_annotations[0].description if response.text_annotations else ""
+    # [DEBUG] OCR 텍스트 일부 출력
+    sys.stderr.write(f"[DEBUG] OCR 추출 텍스트 (앞 500자): {ocr_text[:500]}...\n")
+    return ocr_text
+ 
 def get_job_roles_and_metadata(ocr_text: str) -> dict:
-    """공고에서 전체 공통 사항(회사명, 기간)과 직무 목록을 먼저 추출."""
     client = genai.Client(api_key=GOOGLE_API_KEY)
     
     system_prompt = (
-        "You are a senior Korean recruitment analyst specializing in parsing job postings (채용공고).\n"
-        "The input text was extracted via OCR from a screenshot of a Korean job posting website. "
-        "It may contain OCR artifacts such as broken characters, misaligned columns, repeated headers/footers, "
-        "navigation text, or advertisement noise. You must intelligently filter these out.\n\n"
+        "당신은 한국의 채용 공고(JD)를 정밀하게 분석하는 전문 리크루팅 애널리스트입니다.\n"
+        "입력된 텍스트는 공고 캡처 이미지에서 추출된 OCR 데이터입니다. 여기에는 글자 깨짐, 열 어긋남, "
+        "반복되는 헤더/푸터, 내비게이션 텍스트 또는 광고 노이즈가 포함되어 있을 수 있습니다. "
+        "이러한 노이즈를 지능적으로 필터링하고 핵심 정보만 추출해야 합니다.\n\n"
         
-        "YOUR TASK:\n"
-        "1. Identify the company name (회사명). Look for patterns like 'OO주식회사', 'OO그룹', etc. "
-        "If an English name and Korean name both appear, prefer the official Korean name.\n"
-        "2. Extract the recruitment period. Look for keywords: '접수기간', '모집기간', '지원기간', '시작일', '마감일', '채용기간'. "
-        "Normalize all dates to YYYY-MM-DD format. If only relative dates exist (e.g., '채용시 마감'), write them as-is.\n"
-        "3. List ALL distinct job roles. For EACH role, identify an 'anchor_sentence'. "
-        "   The anchor_sentence MUST be the EXACT text from the OCR where that job's specific section starts "
-        "   (e.g., if '백엔드 개발' starts with '[모집부문] 백엔드 개발', use that exact string).\n"
-        "4. Identify a 'common_section_anchor'. This is the EXACT text where the common info for all roles starts "
-        "   (e.g., '전형절차', '복리후생', '공통 자격요건'). If none exists, use an empty string.\n\n"
+        "수행 과제:\n"
+        "1. 회사명 식별: 'OO주식회사', 'OO그룹' 등의 패턴을 찾으세요. 국문명과 영문명이 병기된 경우 공식 국문명을 우선시합니다.\n"
+        "2. 채용 기간 추출: '접수기간', '모집기간', '시작일', '마감일' 등의 키워드를 찾으세요. "
+        "모든 날짜를 YYYY-MM-DD 형식으로 정규화하세요. 상대적 날짜(예: '채용시 마감')는 있는 그대로 작성하세요.\n"
+        "3. 모든 개별 직무 나열: 공고에 포함된 모든 직무를 각각 추출하고, 각 직무의 '앵커 문장(anchor_sentence)'을 식별하세요. "
+        "앵커 문장은 해당 직무의 상세 내용이 시작되는 OCR 텍스트 내의 **정확한 문자열**이어야 합니다 "
+        "(예: '[모집부문] 백엔드 개발'이 직무의 시작이라면 해당 텍스트를 그대로 사용).\n"
+        "4. 공통 섹션 앵커 식별: 모든 직무에 공통으로 적용되는 정보(전형절차, 복리후생 등)가 시작되는 정확한 텍스트를 찾으세요.\n\n"
         
-        "CRITICAL RULES:\n"
-        "- The anchor_sentence must be a unique, literal substring found in the input text.\n"
-        "- If a role has sub-categories, treat each as a separate role with its own anchor.\n\n"
-        "OUTPUT FORMAT: Return a JSON object with: company_name, start_date, end_date, "
-        "role_details (array of objects with 'title' and 'anchor_sentence'), and common_section_anchor (string)."
+        "준수 사항:\n"
+        "- anchor_sentence는 반드시 입력 텍스트 내에 존재하는 유일하고 글자 하나 틀리지 않은 리터럴 문자열이어야 합니다.\n"
+        "- 직무에 하위 카테고리가 있는 경우 각각을 별도의 직무로 취급하세요.\n\n"
+        "출력 형식: JSON 객체 (회사명(company_name), 시작일(start_date), 마감일(end_date), 직무 상세 목록(role_details), 공통 섹션 앵커(common_section_anchor))"
     )
 
     schema = {
@@ -448,50 +249,14 @@ def get_job_roles_and_metadata(ocr_text: str) -> dict:
         },
         "required": ["company_name", "start_date", "end_date", "role_details", "common_section_anchor"]
     }
-
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=f"{system_prompt}\n\nUSER INPUT OCR TEXT:\n{ocr_text}",
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=schema,
-            temperature=0.0
-        )
+        model="gemini-2.0-flash",
+        contents=f"{system_prompt}\n\nTEXT:\n{ocr_text}",
+        config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0.0)
     )
     return json.loads(response.text)
-
-def slice_job_text(ocr_text: str, current_role: dict, next_role_anchor: str, common_anchor: str, search_from: int = 0) -> tuple[str, int]:
-    """OCR 텍스트에서 해당 직무에 해당하는 부분만 물리적으로 잘라냄."""
-    start_anchor = current_role['anchor_sentence']
-    
-    start_idx = ocr_text.find(start_anchor, search_from)
-    if start_idx == -1:
-        return ocr_text, search_from
-        
-    end_indices = []
-    if next_role_anchor:
-        idx = ocr_text.find(next_role_anchor, start_idx + len(start_anchor))
-        if idx != -1: end_indices.append(idx)
-    
-    if common_anchor:
-        idx = ocr_text.find(common_anchor, start_idx + len(start_anchor))
-        if idx != -1: end_indices.append(idx)
-        
-    end_idx = min(end_indices) if end_indices else len(ocr_text)
-    
-    s_idx = int(start_idx)
-    e_idx = int(end_idx)
-    sliced_main = ocr_text[s_idx:e_idx]  # type: ignore
-    common_part = ""
-    if common_anchor:
-        c_idx = ocr_text.find(common_anchor)
-        if c_idx != -1:
-            common_part = "\n\n[COMMON SECTION]\n" + ocr_text[int(c_idx):]  # type: ignore
-            
-    return sliced_main + common_part, start_idx + len(start_anchor)
-
+ 
 def analyze_individual_job(sliced_text: str, job_title: str, common_meta: dict, all_roles: list = []) -> dict:
-    """물리적으로 잘려진 텍스트 조각에서 상세 정보를 추출."""
     client = genai.Client(api_key=GOOGLE_API_KEY)
     
     fields_mapping = {
@@ -499,164 +264,95 @@ def analyze_individual_job(sliced_text: str, job_title: str, common_meta: dict, 
         "main_tasks": "주요업무", "requirements": "자격요건", "preferred_qualifications": "우대사항",
         "location": "근무지", "start_date": "채용시작일", "end_date": "채용마감일", "brief_summary": "공고요약"
     }
-
+ 
     system_prompt = (
-        f"You are a specialist recruitment analyst. Your ONLY task is to extract detailed information "
-        f"for the specific role: 「{job_title}」 from the provided OCR text of a Korean job posting.\n\n"
+        f"당신은 전문 채용 분석가입니다. 당신의 유일한 과제는 제공된 OCR 텍스트에서 「{job_title}」 직무에 대한 상세 정보를 추출하는 것입니다.\n\n"
         
-        "CONTEXT:\n"
-        f"- Company: {common_meta.get('company_name', '(unknown)')}\n"
-        f"- TARGET Role to extract EXACTLY: 「{job_title}」\n"
-        f"- All roles listed in this JD (for boundary reference): {', '.join([r.get('title', '') for r in all_roles])}\n"
-        "- You are given a PRE-SLICED portion of the JD. If you suspect it contains text from ANOTHER role, strictly ignore the parts that don't belong to the target role.\n"
-        f"- Recruitment Period: {common_meta.get('start_date', '')} ~ {common_meta.get('end_date', '')}\n"
-        "- The text was extracted via OCR and may contain noise, broken characters, or misaligned data.\n\n"
+        "맥락 정보:\n"
+        f"- 대상 기업: {common_meta.get('company_name', '(알 수 없음)')}\n"
+        f"- 추출 대상 직무: 「{job_title}」\n"
+        f"- 전체 공고 내 직무 목록: {', '.join([r.get('title', '') for r in all_roles])}\n"
+        "- 입력된 텍스트는 해당 직무와 관련된 조각입니다. 타 직무의 내용이 섞여 있다면 엄격히 배제하세요.\n\n"
         
-        "FIELD-BY-FIELD EXTRACTION GUIDE:\n"
-        "1. company_name: Use the company name provided above. If the text shows a different subsidiary or brand, use that instead.\n"
-        "2. recruitment_field (모집부문): The broader category this role belongs to (e.g., '기술직', '경영지원', '마케팅본부'). "
-        "   Look for section headers like '[모집부문]' or department names.\n"
-        "3. job_title (모집직무): The specific position title. Use the exact title from the posting. "
-        "   Examples: '백엔드 개발자', '브랜드 마케터', '인사담당자'\n"
-        "4. main_tasks (주요업무): List EVERY task and responsibility mentioned for this role. "
-        "   **CRITICAL: Each task MUST be on a NEW line starting with '- '.** "
-        "   Use dash-prefixed bullet format: '- Task 1\\n- Task 2\\n- Task 3'. "
-        "   Look for keywords: '담당업무', '주요업무', '업무내용', '직무내용', 'What you will do'. "
-        "   Be EXHAUSTIVE. Do NOT summarize or paraphrase. Copy the exact wording from the text.\n"
-        "5. requirements (자격요건): List ALL mandatory qualifications. "
-        "   **CRITICAL: DO NOT merge conditions into one line. Each condition MUST be on its own NEW line starting with '- '.** "
-        "   Look for: '자격요건', '필수요건', '지원자격', 'Requirements'. "
-        "   Include years of experience, certifications, technical skills, etc. "
-        "   CRITICAL 1: Regarding education, ONLY include it if it explicitly requires '석사 이상' (Master's or higher) or a specific major like '~전공 또는 그에 준하는 전공자' (Major in ... or equivalent). "
-        "   If it says '학력무관' (Education irrelevant), '대졸' (Bachelor's), or lacks specialized major requirements, EXCLUDE the education-related bullet point. "
-        "   CRITICAL 2: Regarding experience, if it says '경력무관' or '신입/경력무관' (Experience irrelevant), entirely EXCLUDE the experience-related bullet points. Only include explicitly stated required experience (e.g., '3년 이상'). "
-        "   Be EXHAUSTIVE for other actual requirements. Every single bullet point matters.\n"
-        "6. preferred_qualifications (우대사항): List ALL preferred/optional qualifications. "
-        "   **CRITICAL: Each item MUST be on a NEW line starting with '- '.** "
-        "   Look for: '우대사항', '우대조건', '우대요건', 'Preferred', '가산점'. "
-        "   Include certifications, additional skills, personality traits mentioned.\n"
-        "7. location (근무지): The work location. Look for: '근무지', '근무장소', '근무지역', '본사', '사업장'. "
-        "   Include full address if available. If '재택근무' or 'Remote' is mentioned, include it.\n"
-        "8. start_date (채용시작일): Use the date from context above unless a role-specific date exists. Format: YYYY-MM-DD.\n"
-        "9. end_date (채용마감일): Use the date from context above unless a role-specific deadline exists. "
-        "   '상시채용', '채용시 마감', '수시' are valid values.\n"
-        "10. brief_summary (공고요약): 사용자가 직무를 선택하기 전 확인하는 요약문입니다. "
-        "    해당 직무의 모집 부문과 핵심 역할을 중심으로 한 줄로 명확하게 요약하세요. "
-        "    단, '[주요업무]', '[자격요건]' 같은 라벨이나 말머리는 절대 사용하지 말고, "
-        "    읽기 자연스러운 문장으로 작성하십시오. (예: '서비스의 백엔드 아키텍처를 설계하고 운영하며, Java 3년 이상의 경력과 기본적인 인프라 운영 지식이 필요합니다.')\n\n"
+        "필드별 추출 가이드:\n"
+        "1. 회사명: 위 제공된 회사명을 사용하세요.\n"
+        "2. 모집부문: 해당 직무가 속한 상위 카테고리 (예: '기술직', '경영지원').\n"
+        "3. 모집직무: 공고상의 정확한 직무 명칭.\n"
+        "4. 주요업무: 언급된 모든 업무를 나열하세요. 반드시 각 항목을 '- '로 시작하는 새 줄로 작성하세요.\n"
+        "5. 자격요건: 모든 필수 요건을 나열하세요. 지능적으로 노이즈를 걸러내고, 각 항목을 '- '로 시작하는 새 줄로 작성하세요.\n"
+        "6. 우대사항: 모든 우대/선택 요건을 나열하세요. 각 항목을 '- '로 시작하는 새 줄로 작성하세요.\n"
+        "7. 근무지: 상세 주소 또는 지역명.\n"
+        "8. 공고요약: 핵심 역할과 역량을 중심으로 자연스러운 한 문장의 요약문을 작성하세요.\n\n"
         
-        "CRITICAL RULES:\n"
-        f"- Extract information ONLY relevant to 「{job_title}」. "
-        "- If the text contains headers for other positions, stop extracting and ignore that text.\n"
-        "- If a section applies to ALL roles (공통 자격요건), include it in this role's output too.\n"
-        "- NEVER fabricate information. If a field genuinely cannot be found, use an empty string \"\".\n"
-        "- For bullet lists, each item MUST start with '- ' and be separated by '\\n'.\n"
-        "- OCR may have broken Korean characters. Use context to infer the correct word.\n\n"
-        "OUTPUT FORMAT: You MUST return a JSON object using the following English keys:\n"
-        "  - company_name, recruitment_field, job_title, main_tasks, requirements, preferred_qualifications, location, start_date, end_date, brief_summary\n"
-        "  - Do not use Korean keys in the JSON itself. The system will map them."
+        "준수 사항:\n"
+        "- 절대 허위 정보를 지어내지 마세요. 필드를 찾을 수 없으면 빈 문자열 \"\"을 반환하세요.\n"
+        "- 모든 리스트 항목은 반드시 '- '와 개행으로 구분되어야 합니다.\n\n"
+        "출력 형식: JSON 객체 (영어 키 사용: company_name, recruitment_field, job_title, main_tasks, requirements, preferred_qualifications, location, start_date, end_date, brief_summary)"
     )
-
+ 
     schema = {
         "type": "OBJECT",
         "properties": {f: {"type": "STRING"} for f in fields_mapping.keys()},
         "required": list(fields_mapping.keys())
     }
-
+ 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=f"{system_prompt}\n\nUSER INPUT OCR TEXT:\n{sliced_text}",
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=schema,
-            temperature=0.0
-        )
+        model="gemini-2.0-flash",
+        contents=f"{system_prompt}\n\nTEXT:\n{sliced_text}",
+        config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0.0)
     )
     
     text = response.text.strip()
-    if "```json" in text:
-        text = text.split("```json")[-1].split("```")[0].strip()
-    elif "```" in text:
-        text = text.split("```")[-1].split("```")[0].strip()
-        
+    if "```json" in text: text = text.split("```json")[-1].split("```")[0].strip()
+    
     try:
         raw_job = json.loads(text)
-    except Exception:
+        return {fields_mapping[k]: (raw_job.get(k, "") or "") for k in fields_mapping.keys() if k in raw_job}
+    except:
         return {}
-        
-    # 한글 키로 변환하여 반환
-    return {fields_mapping[k]: (raw_job.get(k, "") or "") for k in fields_mapping.keys() if k in raw_job}
-
-
-def summarize_with_openai(ocr_text: str) -> list:
-    """메타데이터 추출 후 모든 직무를 병렬로 상세 분석함."""
-    try:
-        sys.stderr.write("[JD 분석] 공고 내 직무 목록 앵커 검출 중...\n")
-        meta_data = get_job_roles_and_metadata(ocr_text)
-        roles_info = meta_data.get("role_details", [])
-        common_anchor = meta_data.get("common_section_anchor", "")
-        
-        if not roles_info:
-            return []
-
-        results = []
-        current_pos = 0
-        sys.stderr.write(f"[JD 분석] {len(roles_info)}개의 직무 텍스트 물리적 분할 및 병렬 분석 시작...\n")
-        with ThreadPoolExecutor() as executor:
-            temp_tasks = []
-            for i, role in enumerate(roles_info):
-                next_anchor = roles_info[i+1]['anchor_sentence'] if i+1 < len(roles_info) else ""
-                sliced_text, next_pos = slice_job_text(ocr_text, role, next_anchor, common_anchor, current_pos)
-                current_pos = next_pos
-                temp_tasks.append((sliced_text, role['title']))
-                
-            futures = [executor.submit(analyze_individual_job, t[0], t[1], meta_data, roles_info) for t in temp_tasks]  # type: ignore
-            results = [f.result() for f in futures]
-            
-        return [r for r in results if r]
-    except Exception as e:
-        sys.stderr.write(f"[오류] AI 병렬 분석 중 오류 발생: {e}\n")
-        return []
-
-# ─────────────────────────────────────────────
-# [메인 엔진] 통합 처리 로직
-# ─────────────────────────────────────────────
 
 def main():
     if len(sys.argv) < 2: sys.exit(1)
-    input_value = sys.argv[1].strip()
-    
-    # 입력값이 URL인지 기업명인지 판단
-    is_url = input_value.startswith("http")
+    url = sys.argv[1].strip()
     
     try:
-        if is_url:
-            # [CASE 1] 채용공고 URL 분석 모드
-            screenshot, top_text, final_url = get_full_page_screenshot(input_value)  # type: ignore
-            
-            if screenshot is None:
-                raise Exception("스크린샷 캡처 실패")
+        # JD 분석 모드만 유지
+        screenshot, top_text, final_url = get_full_page_screenshot(url)
+        if screenshot is None: raise Exception("캡처 실패")
 
-            ocr_text = extract_text_with_google_vision(screenshot)
+        ocr_text = extract_text_with_google_vision(screenshot)
+        combined_text = f"URL: {final_url}\nMETA:\n{top_text}\n\nBODY:\n{ocr_text}"
+        
+        meta = get_job_roles_and_metadata(combined_text)
+        roles = meta.get("role_details", [])
+        common_anchor = meta.get("common_section_anchor", "")
+        
+        results = []
+        curr_pos = 0
+        with ThreadPoolExecutor() as executor:
+            tasks = []
+            for i, role in enumerate(roles):
+                next_a = roles[i+1]['anchor_sentence'] if i+1 < len(roles) else ""
+                # 간소화된 슬라이싱
+                start_idx = combined_text.find(role['anchor_sentence'], curr_pos)
+                end_idx = combined_text.find(next_a, start_idx + 1) if next_a else len(combined_text)
+                if common_anchor:
+                    c_idx = combined_text.find(common_anchor, start_idx + 1)
+                    if c_idx != -1: end_idx = min(end_idx, c_idx)
+                
+                sliced = combined_text[start_idx:end_idx] + (combined_text[combined_text.find(common_anchor):] if common_anchor else "")
+                tasks.append(executor.submit(analyze_individual_job, sliced, role['title'], meta, roles))
+                curr_pos = start_idx + len(role['anchor_sentence'])
             
-            combined_text = f"URL: {final_url}\nMETA:\n{top_text}\n\nBODY:\n{ocr_text}"
-            structured_roles = summarize_with_openai(combined_text)
-            company_name = structured_roles[0].get('회사명', '알 수 없음') if structured_roles else '알 수 없음'
-
-            dart_result = None
+            results = [f.result() for f in tasks]
             
-            print(json.dumps({
-                "raw_text": ocr_text,
-                "structured": structured_roles,
-                "company_name": company_name,
-                "dart": dart_result
-            }, ensure_ascii=False))
-            
-        else:
-            # [CASE 2] 순수 기업 분석 모드 (DART 전용)
-            dart_result = analyze_dart_integrated(input_value)
-            print(json.dumps(dart_result, ensure_ascii=False))
-
+        print(json.dumps({
+            "raw_text": ocr_text,
+            "structured": [r for r in results if r],
+            "company_name": meta.get('company_name', '알 수 없음'),
+            "dart": None # DART는 이제 다른 스크립트에서 처리
+        }, ensure_ascii=False))
+        
     except Exception as e:
         print(json.dumps({"status": "error", "message": str(e)}))
         sys.exit(1)
